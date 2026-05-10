@@ -1697,11 +1697,6 @@
                 }
             }
 
-            const sankeyPanel = document.getElementById('sankeyPanel');
-            if (sankeyPanel) {
-                updateSankeyDiagram(allEvents);
-            }
-
             const aggContainer = document.getElementById('aggregations');
             if (aggContainer) {
                 if (advancedMode) {
