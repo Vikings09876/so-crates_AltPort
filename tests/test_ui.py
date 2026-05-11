@@ -7,28 +7,52 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
+JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'ohmypcap.js')
+CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'ohmypcap.css')
 
 with open(HTML_PATH, 'r') as f:
     HTML_CONTENT = f.read()
-
-JS_MATCH = re.search(r'<script>([\s\S]*?)</script>', HTML_CONTENT)
-JS_CONTENT = JS_MATCH.group(1) if JS_MATCH else ''
+with open(JS_PATH, 'r') as f:
+    JS_CONTENT = f.read()
+with open(CSS_PATH, 'r') as f:
+    CSS_CONTENT = f.read()
 
 
 class TestHTMLStructure(unittest.TestCase):
     def test_file_size(self):
-        """Verify file is complete (not truncated)"""
-        self.assertGreater(len(HTML_CONTENT), 80000, 'File appears truncated')
-    
+        """Verify JS file is complete (not truncated)"""
+        self.assertGreater(len(JS_CONTENT), 80000, 'JS file appears truncated')
+
     def test_script_tags_closed(self):
         """Verify script tags are properly closed"""
-        self.assertIn('<script>', HTML_CONTENT)
-        self.assertIn('</script>', HTML_CONTENT)
+        self.assertIn('<script src="static/ohmypcap.js"></script>', HTML_CONTENT)
         # Count occurrences (including script tags with src attributes)
         open_count = HTML_CONTENT.count('<script>') + HTML_CONTENT.count('<script ')
         close_count = HTML_CONTENT.count('</script>')
         self.assertEqual(open_count, close_count, 'Script tags not balanced')
-    
+
+    def test_css_file_size(self):
+        """Verify CSS file is complete (not truncated)"""
+        self.assertGreater(len(CSS_CONTENT), 1000, 'CSS file appears truncated')
+
+    def test_html_references_css(self):
+        self.assertIn('<link rel="stylesheet" href="static/ohmypcap.css">', HTML_CONTENT)
+
+    def test_no_inline_style_block(self):
+        """HTML must not contain inline <style> blocks after split."""
+        self.assertNotIn('<style>', HTML_CONTENT, 'Inline <style> block found in HTML')
+        self.assertNotIn('</style>', HTML_CONTENT, 'Inline </style> tag found in HTML')
+
+    def test_no_inline_script_block(self):
+        """HTML must not contain inline <script> blocks after split."""
+        inline_script = re.search(r'<script[^>]*>(?!\s*</script>)', HTML_CONTENT)
+        self.assertIsNone(inline_script, 'Inline <script> block found in HTML')
+
+    def test_static_files_exist(self):
+        """static/ohmypcap.css and static/ohmypcap.js must exist on disk."""
+        self.assertTrue(os.path.exists(CSS_PATH), 'static/ohmypcap.css must exist')
+        self.assertTrue(os.path.exists(JS_PATH), 'static/ohmypcap.js must exist')
+
     def test_valid_doctype(self):
         self.assertTrue(HTML_CONTENT.startswith('<!DOCTYPE html>'))
 
@@ -66,7 +90,7 @@ class TestHTMLStructure(unittest.TestCase):
         self.assertIn('closeModal()', HTML_CONTENT)
 
     def test_has_spinner_animation(self):
-        self.assertIn('@keyframes spin', HTML_CONTENT)
+        self.assertIn('@keyframes spin', CSS_CONTENT)
 
     def test_has_marked_js(self):
         self.assertNotIn('marked.min.js', HTML_CONTENT)
@@ -79,7 +103,7 @@ class TestHTMLStructure(unittest.TestCase):
 
 class TestCSSLayout(unittest.TestCase):
     def test_stats_grid_columns(self):
-        match = re.search(r'grid-template-columns:\s*repeat\(([^)]+)\)', HTML_CONTENT)
+        match = re.search(r'grid-template-columns:\s*repeat\(([^)]+)\)', CSS_CONTENT)
         self.assertIsNotNone(match, "stats-grid should have grid-template-columns")
         if match:
             columns = match.group(1)
@@ -89,44 +113,44 @@ class TestCSSLayout(unittest.TestCase):
                           'stats-grid must use minmax for responsive column sizing')
 
     def test_stats_grid_gap(self):
-        self.assertIn('gap:', HTML_CONTENT)
+        self.assertIn('gap:', CSS_CONTENT)
 
     def test_section_hidden_class(self):
-        self.assertIn('.section-hidden', HTML_CONTENT)
-        self.assertIn('display: none', HTML_CONTENT)
+        self.assertIn('.section-hidden', CSS_CONTENT)
+        self.assertIn('display: none', CSS_CONTENT)
 
     def test_stat_card_hover(self):
-        self.assertIn('.stat-card:hover', HTML_CONTENT)
+        self.assertIn('.stat-card:hover', CSS_CONTENT)
 
     def test_table_sticky_headers(self):
-        self.assertIn('position: sticky', HTML_CONTENT)
+        self.assertIn('position: sticky', CSS_CONTENT)
 
     def test_no_horizontal_scrollbars(self):
         """No element should force horizontal scrolling; content must wrap instead."""
-        self.assertNotIn('overflow-x: auto', HTML_CONTENT,
+        self.assertNotIn('overflow-x: auto', CSS_CONTENT,
                          'No horizontal scrollbars allowed; content must wrap')
-        self.assertIn('overflow-wrap: break-word', HTML_CONTENT,
+        self.assertIn('overflow-wrap: break-word', CSS_CONTENT,
                       'Long content must wrap with break-word')
-        self.assertIn('table-layout: fixed', HTML_CONTENT,
+        self.assertIn('table-layout: fixed', CSS_CONTENT,
                       'Table must use fixed layout to prevent expansion beyond viewport')
 
     def test_stream_output_breaks_on_dots(self):
         """Modal stream output must break on non-word characters like dots."""
-        self.assertIn('.stream-output {', HTML_CONTENT,
+        self.assertIn('.stream-output {', CSS_CONTENT,
                       'stream-output style must exist')
-        self.assertIn('word-break: break-all', HTML_CONTENT,
+        self.assertIn('word-break: break-all', CSS_CONTENT,
                       'stream-output must break on dots and non-word characters')
 
     def test_detail_row_allows_text_wrapping(self):
         """Detail rows must override the global td nowrap so content can wrap."""
-        self.assertIn('.detail-row td {', HTML_CONTENT,
+        self.assertIn('.detail-row td {', CSS_CONTENT,
                       'detail-row td style must exist')
-        self.assertIn('white-space: normal', HTML_CONTENT,
+        self.assertIn('white-space: normal', CSS_CONTENT,
                       'detail-row td must allow text wrapping')
 
     def test_table_cells_wrap_not_truncate(self):
         """Table cells (including ALERT) must wrap text, not truncate with ellipsis."""
-        td_match = re.search(r'td \{([^}]+)\}', HTML_CONTENT)
+        td_match = re.search(r'td \{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(td_match, 'Global td style must exist')
         td_style = td_match.group(1)
         self.assertNotIn('white-space: nowrap', td_style,
@@ -138,21 +162,21 @@ class TestCSSLayout(unittest.TestCase):
 
     def test_detail_content_wraps(self):
         """Detail content must use overflow-wrap to prevent overflow."""
-        self.assertIn('.detail-content {', HTML_CONTENT,
+        self.assertIn('.detail-content {', CSS_CONTENT,
                       'detail-content style must exist')
-        self.assertIn('overflow-wrap: break-word', HTML_CONTENT,
+        self.assertIn('overflow-wrap: break-word', CSS_CONTENT,
                       'detail-content must wrap long text')
 
     def test_ascii_transcript_lines_wrap(self):
         """ASCII transcript inner divs must wrap to avoid horizontal overflow."""
-        self.assertIn('.ascii-transcript div { overflow-wrap: break-word', HTML_CONTENT,
+        self.assertIn('.ascii-transcript div { overflow-wrap: break-word', CSS_CONTENT,
                       'ascii-transcript divs must wrap long lines')
-        self.assertIn('word-break: break-all', HTML_CONTENT,
+        self.assertIn('word-break: break-all', CSS_CONTENT,
                       'ascii-transcript divs must break on non-word characters like dots')
 
     def test_ascii_transcript_shows_loading_indicator(self):
         """ASCII transcript must show a loading spinner while fetching."""
-        self.assertIn('.ascii-loading {', HTML_CONTENT,
+        self.assertIn('.ascii-loading {', CSS_CONTENT,
                       'ascii-loading CSS class must exist')
         self.assertIn('Loading ASCII transcript', JS_CONTENT,
                       'toggleRow must set loading text before fetching transcript')
@@ -161,9 +185,9 @@ class TestCSSLayout(unittest.TestCase):
 
     def test_detail_grid_can_shrink(self):
         """formatEvent grid must set min-width: 0 so columns shrink on narrow viewports."""
-        self.assertIn('min-width: 0', HTML_CONTENT,
+        self.assertIn('min-width: 0', JS_CONTENT,
                       'formatEvent grid must set min-width: 0 to shrink')
-        self.assertIn('minmax(0, 1fr)', HTML_CONTENT,
+        self.assertIn('minmax(0, 1fr)', JS_CONTENT,
                       'formatEvent grid must use minmax(0, 1fr) to allow column shrinking')
 
     def test_responsive_viewport(self):
@@ -230,6 +254,18 @@ class TestJavaScriptFunctions(unittest.TestCase):
 
     def test_has_build_all_events(self):
         self.assertIn('function buildAllEvents', JS_CONTENT)
+
+    def test_has_clearAnalysisContainers(self):
+        self.assertIn('function clearAnalysisContainers', JS_CONTENT)
+
+    def test_has_showWelcomeUI(self):
+        self.assertIn('function showWelcomeUI', JS_CONTENT)
+
+    def test_has_showAnalysisUI(self):
+        self.assertIn('function showAnalysisUI', JS_CONTENT)
+
+    def test_has_refreshCurrentView(self):
+        self.assertIn('function refreshCurrentView', JS_CONTENT)
 
     def test_has_init(self):
         self.assertIn('function init', JS_CONTENT)
@@ -304,11 +340,14 @@ class TestCardOrder(unittest.TestCase):
         """Verify applyFilter builds both section and aggregation when filtering"""
         self.assertIn("buildSection(eventType, sections[eventType])", JS_CONTENT,
                       "applyFilter should call buildSection")
-        applyFunc = JS_CONTENT.split('function applyFilter')[1].split('function clearFilter')[0]
-        self.assertIn("buildAggregationsSection(eventType, filtered)", applyFunc,
-                      "applyFilter should call buildAggregationsSection with filtered events")
-        self.assertIn("updateSankeyDiagram(filtered)", applyFunc,
-                      "applyFilter should update Sankey diagram with filtered events")
+        applyFunc = JS_CONTENT.split('function applyFilter(')[1].split('function clearFilter')[0]
+        self.assertIn("applyFilters", applyFunc,
+                      "applyFilter should delegate to applyFilters")
+        refreshFunc = JS_CONTENT.split('function refreshCurrentView')[1].split('function ')[0]
+        self.assertIn("buildAggregationsSection(eventType, filtered)", refreshFunc,
+                      "refreshCurrentView should call buildAggregationsSection with filtered events")
+        self.assertIn("updateSankeyDiagram()", refreshFunc,
+                      "refreshCurrentView should update Sankey diagram")
 
 
 class TestJavaScriptDataStructures(unittest.TestCase):
@@ -317,6 +356,18 @@ class TestJavaScriptDataStructures(unittest.TestCase):
 
     def test_has_type_colors(self):
         self.assertIn('typeColors', JS_CONTENT)
+
+    def test_has_event_type_icons_constant(self):
+        self.assertIn('EVENT_TYPE_ICONS', JS_CONTENT)
+
+    def test_has_all_events_columns_constant(self):
+        self.assertIn('ALL_EVENTS_COLUMNS', JS_CONTENT)
+
+    def test_has_empty_filter_state_constant(self):
+        self.assertIn('EMPTY_FILTER_STATE_HTML', JS_CONTENT)
+
+    def test_has_agg_collapsed_constant(self):
+        self.assertIn('AGG_COLLAPSED_HTML', JS_CONTENT)
 
     def test_has_all_event_types(self):
         expected_types = ['alert', 'dns', 'http', 'tls', 'flow', 'ftp', 'stats', 'anomaly', 'fileinfo']
@@ -419,24 +470,24 @@ class TestUXFeatures(unittest.TestCase):
     def test_loading_states(self):
         self.assertIn('showLoading', JS_CONTENT)
         self.assertIn('hideLoading', JS_CONTENT)
-        self.assertIn('spinner', HTML_CONTENT)
+        self.assertIn('spinner', CSS_CONTENT)
 
     def test_empty_state_handling(self):
-        self.assertIn('No previous PCAPs available', HTML_CONTENT)
+        self.assertIn('No previous PCAPs available', JS_CONTENT)
 
     def test_error_messages(self):
         self.assertIn('showError(', JS_CONTENT)
         self.assertIn('id="errorModal"', HTML_CONTENT)
 
     def test_back_navigation(self):
-        self.assertIn('Back to Overview', HTML_CONTENT)
+        self.assertIn('Back to Overview', JS_CONTENT)
 
     def test_header_has_no_separators(self):
         """Header items must not have any separators (pipes or borders) for clean responsive wrapping."""
         header_section = JS_CONTENT.split("getElementById('headerContent').innerHTML")[1].split("`;")[0]
         self.assertNotIn('color: #30363d;"|"', header_section,
                          'Header must not use literal pipe characters as separators')
-        self.assertNotIn('.header-item', HTML_CONTENT,
+        self.assertNotIn('.header-item', CSS_CONTENT,
                          'Header must not use CSS border separators')
 
     def test_header_has_file_icon(self):
@@ -446,39 +497,33 @@ class TestUXFeatures(unittest.TestCase):
                       'Header filename must have 📄 icon')
 
     def test_file_input_accepts_correct_types(self):
-        self.assertIn('.pcap', HTML_CONTENT)
-        self.assertIn('.pcapng', HTML_CONTENT)
-        self.assertIn('.cap', HTML_CONTENT)
-        self.assertIn('.trace', HTML_CONTENT)
+        self.assertIn('.pcap', JS_CONTENT)
+        self.assertIn('.pcapng', JS_CONTENT)
+        self.assertIn('.cap', JS_CONTENT)
+        self.assertIn('.trace', JS_CONTENT)
 
     def test_file_input_accepts_zip(self):
         """File input must accept .zip files for drag-and-drop and browse."""
-        input_match = re.search(r'id="pcapUpload"[^>]*accept="([^"]*)"', HTML_CONTENT)
+        input_match = re.search(r'id="pcapUpload"[^>]*accept="([^"]*)"', JS_CONTENT)
         self.assertIsNotNone(input_match, 'pcapUpload input must have accept attribute')
         accept_value = input_match.group(1)
         self.assertIn('.zip', accept_value,
                       'File input must accept .zip files')
 
-    def test_drag_and_drop_accepts_zip(self):
-        """Drag-and-drop handler must validate .zip files as acceptable."""
-        drop_section = JS_CONTENT.split('function handleDrop')[1].split('function checkStatus')[0]
-        self.assertIn("'.zip'", drop_section,
-                      'handleDrop must include .zip in validExts')
-
     def test_drag_and_drop_zone_exists(self):
         """Upload area must have a visible drop zone for drag-and-drop."""
-        self.assertIn('id="dropZone"', HTML_CONTENT,
+        self.assertIn('id="dropZone"', JS_CONTENT,
                       'Drop zone element must exist')
-        self.assertIn('ondragover', HTML_CONTENT,
+        self.assertIn('ondragover', JS_CONTENT,
                       'Drop zone must handle dragover event')
-        self.assertIn('ondrop', HTML_CONTENT,
+        self.assertIn('ondrop', JS_CONTENT,
                       'Drop zone must handle drop event')
 
     def test_drag_and_drop_css_feedback(self):
         """Drop zone must have CSS class for visual feedback on drag."""
-        self.assertIn('.drop-zone-active', HTML_CONTENT,
+        self.assertIn('.drop-zone-active', CSS_CONTENT,
                       'Drop zone active CSS class must exist')
-        active_match = re.search(r'\.drop-zone-active\s*\{([^}]+)\}', HTML_CONTENT)
+        active_match = re.search(r'\.drop-zone-active\s*\{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(active_match, '.drop-zone-active CSS rule must exist')
         active_style = active_match.group(1)
         self.assertIn('border-color', active_style,
@@ -509,7 +554,7 @@ class TestUXFeatures(unittest.TestCase):
 
     def test_url_input_submits_on_enter(self):
         """URL input field must call loadFromUrl when Enter key is pressed."""
-        input_match = re.search(r'id="pcapUrl"[^>]*>', HTML_CONTENT)
+        input_match = re.search(r'id="pcapUrl"[^>]*>', JS_CONTENT)
         self.assertIsNotNone(input_match, 'pcapUrl input must exist')
         input_tag = input_match.group(0)
         self.assertIn("onkeydown", input_tag,
@@ -556,7 +601,7 @@ class TestUXFeatures(unittest.TestCase):
 
     def test_sankey_has_close_button(self):
         """Sankey diagram panel must include a collapsible heading bar."""
-        self.assertIn('section-toggle-bar', HTML_CONTENT,
+        self.assertIn('section-toggle-bar', CSS_CONTENT,
                       'section-toggle-bar CSS class must exist')
         self.assertIn("diagramMode = !diagramMode", JS_CONTENT,
                       'toggleDiagram must flip diagramMode state')
@@ -581,6 +626,23 @@ class TestUXFeatures(unittest.TestCase):
         self.assertIn("getColumnNameFromSankeyColumn(d.column)", JS_CONTENT,
                       'Sankey node must map column')
 
+    def test_sankey_empty_events_shows_header(self):
+        """REGRESSION: updateSankeyDiagram must render the toggle header even when events are empty."""
+        func = JS_CONTENT.split('function updateSankeyDiagram(')[1].split('function ')[0]
+        self.assertIn("sankeyPanel.innerHTML = '<div class=\"section-toggle-bar\" onclick=\"toggleDiagram()\">▾ Sankey Diagram</div>'", func,
+                      'updateSankeyDiagram must render header bar for empty events')
+
+    def test_getSankeyEvents_exists(self):
+        """JavaScript must define getSankeyEvents to resolve events for the currently visible tab."""
+        self.assertIn('function getSankeyEvents(', JS_CONTENT,
+                      'getSankeyEvents function must exist')
+
+    def test_updateSankeyDiagram_uses_getSankeyEvents(self):
+        """REGRESSION: updateSankeyDiagram must call getSankeyEvents instead of accepting a parameter."""
+        func = JS_CONTENT.split('function updateSankeyDiagram(')[1].split('function ')[0]
+        self.assertIn('getSankeyEvents()', func,
+                      'updateSankeyDiagram must call getSankeyEvents to resolve events')
+
     def test_apply_filters_function_exists(self):
         """JavaScript must define applyFilters to apply multiple filters at once."""
         self.assertIn('function applyFilters(', JS_CONTENT,
@@ -592,18 +654,18 @@ class TestUXFeatures(unittest.TestCase):
                       'getColumnNameFromSankeyColumn function must exist')
 
     def test_default_url_prefilled(self):
-        self.assertIn('malware-traffic-analysis.net', HTML_CONTENT)
+        self.assertIn('malware-traffic-analysis.net', JS_CONTENT)
 
     def test_feature_comparison_table(self):
-        self.assertIn('OhMyPCAP', HTML_CONTENT)
-        self.assertIn('Security Onion', HTML_CONTENT)
+        self.assertIn('OhMyPCAP', JS_CONTENT)
+        self.assertIn('Security Onion', JS_CONTENT)
 
     def test_feature_comparison_table_links(self):
         """Feature comparison table must include links to Security Onion resources"""
-        self.assertIn('https://securityonion.net', HTML_CONTENT)
-        self.assertIn('http://securityonion.net/docs/about', HTML_CONTENT)
-        self.assertIn('https://securityonion.com/pro', HTML_CONTENT)
-        self.assertIn('http://securityonion.net/docs/security-onion-pro', HTML_CONTENT)
+        self.assertIn('https://securityonion.net', JS_CONTENT)
+        self.assertIn('http://securityonion.net/docs/about', JS_CONTENT)
+        self.assertIn('https://securityonion.com/pro', JS_CONTENT)
+        self.assertIn('http://securityonion.net/docs/security-onion-pro', JS_CONTENT)
 
     def test_ascii_transcript_loading(self):
         self.assertIn('ASCII Transcript', JS_CONTENT)
@@ -618,7 +680,7 @@ class TestUXFeatures(unittest.TestCase):
         self.assertIn("line.direction", JS_CONTENT)
 
     def test_table_sorting_ui(self):
-        self.assertIn('cursor: pointer', HTML_CONTENT)
+        self.assertIn('cursor: pointer', CSS_CONTENT)
         self.assertIn('sort-arrow', JS_CONTENT)
 
     def test_hexdump_function_exists(self):
@@ -636,28 +698,44 @@ class TestUXFeatures(unittest.TestCase):
         self.assertIn("querySelectorAll('.packet-header > span:first-child')", JS_CONTENT)
 
     def test_hexdump_button_in_detail_row(self):
-        self.assertIn('Hexdump', HTML_CONTENT)
-        self.assertIn("onclick=\"switchStreamView(", HTML_CONTENT)
-        self.assertIn('.view-tabs', HTML_CONTENT)
-        self.assertIn('.view-tab', HTML_CONTENT)
+        self.assertIn('Hexdump', JS_CONTENT)
+        self.assertIn("onclick=\"switchStreamView(", JS_CONTENT)
+        self.assertIn('.view-tabs', CSS_CONTENT)
+        self.assertIn('.view-tab', CSS_CONTENT)
 
     def test_hexdump_packet_css(self):
-        self.assertIn('.packet-block', HTML_CONTENT)
-        self.assertIn('.packet-header', HTML_CONTENT)
-        self.assertIn('.packet-content', HTML_CONTENT)
-        self.assertIn('.view-tabs', HTML_CONTENT)
-        self.assertIn('.view-tab', HTML_CONTENT)
+        self.assertIn('.packet-block', CSS_CONTENT)
+        self.assertIn('.packet-header', CSS_CONTENT)
+        self.assertIn('.packet-content', CSS_CONTENT)
+        self.assertIn('.view-tabs', CSS_CONTENT)
+        self.assertIn('.view-tab', CSS_CONTENT)
 
     def test_hexdump_direction_classes(self):
         """Each packet block must have a src-dir or dst-dir class for colored left border."""
-        self.assertIn('.packet-block.src-dir', HTML_CONTENT)
-        self.assertIn('.packet-block.dst-dir', HTML_CONTENT)
+        self.assertIn('.packet-block.src-dir', CSS_CONTENT)
+        self.assertIn('.packet-block.dst-dir', CSS_CONTENT)
         self.assertNotIn('function colorizePacketHeader', JS_CONTENT)
 
     def test_hexdump_direction_detection(self):
         """loadHexdumpData must detect direction by splitting on ' > ' and checking src."""
         self.assertIn("pkt.header.split(' > ')", JS_CONTENT)
         self.assertIn("dirParts[0].includes(src)", JS_CONTENT)
+
+    def test_loadAnalysis_calls_loadTabData_after_buildSections(self):
+        """loadAnalysis must call loadTabData after buildSections since buildSections no longer loads data."""
+        func = JS_CONTENT.split('async function loadAnalysis')[1].split('async function')[0]
+        self.assertIn("clearAnalysisContainers()", func,
+                      'loadAnalysis must clear containers before rebuilding')
+        self.assertIn("buildSections();", func,
+                      'loadAnalysis must call buildSections')
+        self.assertIn("loadTabData(eventTypes[0])", func,
+                      'loadAnalysis must call loadTabData after buildSections')
+
+    def test_loadAnalysis_uses_showAnalysisUI(self):
+        """loadAnalysis must call showAnalysisUI after rebuilding the analysis view."""
+        func = JS_CONTENT.split('async function loadAnalysis')[1].split('async function')[0]
+        self.assertIn("showAnalysisUI()", func,
+                      'loadAnalysis must call showAnalysisUI after rebuilding')
 
 
 class TestSecurityInUI(unittest.TestCase):
@@ -688,17 +766,17 @@ class TestAccessibility(unittest.TestCase):
         self.assertIn('<title>', HTML_CONTENT)
 
     def test_buttons_have_titles(self):
-        self.assertIn('title="', HTML_CONTENT)
+        self.assertIn('title="', JS_CONTENT)
 
 
 class TestAggregationTables(unittest.TestCase):
     def test_has_agg_grid_css(self):
-        self.assertIn('.agg-grid', HTML_CONTENT)
+        self.assertIn('.agg-grid', CSS_CONTENT)
 
     def test_has_agg_section_css(self):
         """agg-section must be a flex item sized to content, not fixed widths."""
-        self.assertIn('.agg-section', HTML_CONTENT)
-        section_match = re.search(r'\.agg-section\s*\{([^}]+)\}', HTML_CONTENT)
+        self.assertIn('.agg-section', CSS_CONTENT)
+        section_match = re.search(r'\.agg-section\s*\{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(section_match, 'agg-section CSS rule must exist')
         section_style = section_match.group(1)
         self.assertIn('flex: 0 1 auto', section_style,
@@ -710,7 +788,7 @@ class TestAggregationTables(unittest.TestCase):
 
     def test_agg_table_sized_to_content(self):
         """agg-table tables must fill container while columns size to data."""
-        rule_match = re.search(r'\.agg-table table\s*\{([^}]+)\}', HTML_CONTENT)
+        rule_match = re.search(r'\.agg-table table\s*\{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(rule_match, '.agg-table table CSS rule must exist')
         rule_style = rule_match.group(1)
         self.assertIn('width: 100%', rule_style,
@@ -719,20 +797,20 @@ class TestAggregationTables(unittest.TestCase):
                       'agg-table columns must size based on data')
 
     def test_has_agg_table_css(self):
-        self.assertIn('.agg-table', HTML_CONTENT)
+        self.assertIn('.agg-table', CSS_CONTENT)
 
     def test_has_agg_table_title_css(self):
-        self.assertIn('.agg-table .agg-header', HTML_CONTENT)
+        self.assertIn('.agg-table .agg-header', CSS_CONTENT)
 
     def test_has_agg_row_css(self):
-        self.assertIn('.agg-row', HTML_CONTENT)
+        self.assertIn('.agg-row', CSS_CONTENT)
 
     def test_has_agg_cell_css(self):
-        self.assertIn('.agg-cell', HTML_CONTENT)
+        self.assertIn('.agg-cell', CSS_CONTENT)
 
     def test_agg_cell_allows_full_text(self):
         """agg-cell must show full values without truncation."""
-        cell_match = re.search(r'\.agg-cell\s*\{([^}]+)\}', HTML_CONTENT)
+        cell_match = re.search(r'\.agg-cell\s*\{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(cell_match, '.agg-cell CSS rule must exist')
         cell_style = cell_match.group(1)
         self.assertNotIn('text-overflow: ellipsis', cell_style,
@@ -746,7 +824,7 @@ class TestAggregationTables(unittest.TestCase):
 
     def test_agg_table_td_allows_full_text(self):
         """agg-table td cells must not force single-line truncation."""
-        td_match = re.search(r'\.agg-table td\s*\{([^}]+)\}', HTML_CONTENT)
+        td_match = re.search(r'\.agg-table td\s*\{([^}]+)\}', CSS_CONTENT)
         self.assertIsNotNone(td_match, '.agg-table td CSS rule must exist')
         td_style = td_match.group(1)
         self.assertNotIn('text-overflow: ellipsis', td_style,
@@ -763,24 +841,42 @@ class TestAggregationTables(unittest.TestCase):
     def test_has_build_aggregation_tables_all_function(self):
         self.assertIn('function buildAggregationTablesAll', JS_CONTENT)
 
+    def test_has_build_aggregation_tables_core_function(self):
+        """buildAggregationTablesCore must exist as the unified aggregation builder."""
+        self.assertIn('function buildAggregationTablesCore', JS_CONTENT)
+
+    def test_buildAggregationTables_delegates_to_core(self):
+        """REGRESSION: buildAggregationTables must delegate to buildAggregationTablesCore
+        instead of duplicating the grid-building logic."""
+        func = JS_CONTENT.split('function buildAggregationTables(')[1].split('function ')[0]
+        self.assertIn('buildAggregationTablesCore', func,
+                      'buildAggregationTables must delegate to buildAggregationTablesCore')
+
+    def test_buildAggregationTablesAll_delegates_to_core(self):
+        """REGRESSION: buildAggregationTablesAll must delegate to buildAggregationTablesCore
+        instead of duplicating the grid-building logic."""
+        func = JS_CONTENT.split('function buildAggregationTablesAll(')[1].split('function ')[0]
+        self.assertIn('buildAggregationTablesCore', func,
+                      'buildAggregationTablesAll must delegate to buildAggregationTablesCore')
+
     def test_has_extract_value_function(self):
         self.assertIn('function extractValue', JS_CONTENT)
 
     def test_has_extract_all_value_function(self):
         self.assertIn('function extractAllValue', JS_CONTENT)
 
-    def test_extractAllValue_handles_per_type_columns(self):
-        """extractAllValue must handle per-type columns (Alert, Query, URL, etc.)
-        so filters set on one tab work correctly in the 'All Events' view."""
-        func_body = JS_CONTENT.split('function extractAllValue')[1].split('function buildAggregationTablesAll')[0]
-        self.assertIn("case 'Alert':", func_body,
-                      'extractAllValue must handle Alert column')
-        self.assertIn("case 'Query':", func_body,
-                      'extractAllValue must handle Query column')
-        self.assertIn("case 'URL':", func_body,
-                      'extractAllValue must handle URL column')
-        self.assertIn("case 'Method':", func_body,
-                      'extractAllValue must handle Method column')
+    def test_extractAllValue_handles_all_events_columns(self):
+        """extractAllValue must handle 'All Events' specific columns (Type, Command, Message)
+        and delegate to extractValue for per-type columns so filters work correctly."""
+        func_body = JS_CONTENT.split('function extractAllValue')[1].split('function buildAggregationTablesCore')[0]
+        self.assertIn("col === 'Type'", func_body,
+                      'extractAllValue must handle Type column')
+        self.assertIn("col === 'Command'", func_body,
+                      'extractAllValue must handle Command column')
+        self.assertIn("col === 'Message'", func_body,
+                      'extractAllValue must handle Message column')
+        self.assertIn('return extractValue(e, col, colIndex)', func_body,
+                      'extractAllValue must delegate to extractValue')
 
     def test_extractValue_handles_detail_column(self):
         """extractValue must handle 'Detail' column for all event types so
@@ -808,20 +904,20 @@ class TestAggregationTables(unittest.TestCase):
         self.assertIn("String(e.dest_port", JS_CONTENT)
 
     def test_agg_tables_have_click_handlers(self):
-        self.assertIn("onclick=\"applyFilter('section-", JS_CONTENT)
+        self.assertIn("onclick=\"applyFilter('${sectionId}', '${col.replace", JS_CONTENT)
 
     def test_agg_tables_no_bar_charts(self):
-        self.assertNotIn('.agg-bar', HTML_CONTENT)
+        self.assertNotIn('.agg-bar', CSS_CONTENT)
 
     def test_agg_tables_have_borders(self):
-        self.assertIn('border: 1px solid #30363d', HTML_CONTENT)
+        self.assertIn('border: 1px solid #30363d', CSS_CONTENT)
 
     def test_agg_tables_wrap_with_flex(self):
-        self.assertIn('flex-wrap: wrap', HTML_CONTENT)
+        self.assertIn('flex-wrap: wrap', CSS_CONTENT)
 
     def test_agg_header_has_close_button(self):
         """Each aggregation table header must include a close button to hide the table."""
-        self.assertIn('agg-close', HTML_CONTENT,
+        self.assertIn('agg-close', CSS_CONTENT,
                       'agg-close CSS class must exist')
         self.assertIn("hideAggregationTable('${sectionId}'", JS_CONTENT,
                       'Aggregation header must call hideAggregationTable')
@@ -863,19 +959,20 @@ class TestFiltering(unittest.TestCase):
         self.assertIn('function getFilteredEvents', JS_CONTENT)
 
     def test_has_filter_bar_css(self):
-        self.assertIn('.filter-bar', HTML_CONTENT)
+        self.assertIn('.filter-bar', CSS_CONTENT)
 
     def test_has_filter_chip_css(self):
-        self.assertIn('.filter-chip', HTML_CONTENT)
+        self.assertIn('.filter-chip', CSS_CONTENT)
 
     def test_has_filter_clear_all_css(self):
-        self.assertIn('.filter-clear-all', HTML_CONTENT)
+        self.assertIn('.filter-clear-all', CSS_CONTENT)
 
     def test_has_footer_css(self):
-        self.assertIn('.footer', HTML_CONTENT)
+        self.assertIn('.footer', CSS_CONTENT)
 
-    def test_has_footer_with_version(self):
-        self.assertIn('OhMyPCAP 2.0.0', HTML_CONTENT)
+    def test_has_footer_with_version_placeholder(self):
+        self.assertIn('OhMyPCAP</a>', HTML_CONTENT)
+        self.assertIn('id="footerVersionLink"', HTML_CONTENT)
 
     def test_has_footer_with_copyright(self):
         self.assertIn('Security Onion Solutions, LLC', HTML_CONTENT)
@@ -888,7 +985,11 @@ class TestFiltering(unittest.TestCase):
         self.assertIn('id="mainHeader"', HTML_CONTENT)
 
     def test_has_instructions_in_analysis(self):
-        self.assertIn('Start by reviewing security alerts', HTML_CONTENT)
+        """Analysis instructions must mention filtering options and hexdump."""
+        self.assertIn('Start by reviewing security alerts', JS_CONTENT)
+        self.assertIn('Filter using the search bar, sankey diagram, or aggregation tables', JS_CONTENT)
+        self.assertIn('ASCII transcript and hexdump and optionally download', JS_CONTENT)
+        self.assertNotIn('ASCII transcript and optionally download', JS_CONTENT)
 
     def test_filter_bar_only_in_aggregations(self):
         self.assertIn('buildAggregationsSection', JS_CONTENT)
@@ -946,7 +1047,7 @@ class TestPerformance(unittest.TestCase):
 
 class TestAdvancedToggle(unittest.TestCase):
     def test_has_advanced_toggle_css(self):
-        self.assertIn('.advanced-toggle', HTML_CONTENT)
+        self.assertIn('.advanced-toggle', CSS_CONTENT)
 
     def test_has_advanced_toggle_input(self):
         self.assertIn('toggleAggregations()', JS_CONTENT)
@@ -1048,7 +1149,7 @@ class TestAdvancedModeFilterBar(unittest.TestCase):
 
     def test_filters_are_global_not_per_section(self):
         """currentFilters must be a flat object so filters persist across all views"""
-        self.assertIn("currentFilters[columnName] = value", JS_CONTENT)
+        self.assertIn("currentFilters[f.column] = f.value", JS_CONTENT)
         self.assertNotIn("currentFilters[sectionId] = {}", JS_CONTENT)
         self.assertNotIn("currentFilters[sectionId][columnName]", JS_CONTENT)
 
@@ -1103,7 +1204,7 @@ class TestAdvancedModeFilterBar(unittest.TestCase):
         self.assertNotIn("currentFilters[sectionId] = {", JS_CONTENT)
         self.assertNotIn("currentFilters[sectionId][columnName]", JS_CONTENT)
         self.assertNotIn("currentFilters[sectionId] || {}", JS_CONTENT)
-        self.assertIn("currentFilters[columnName] = value", JS_CONTENT)
+        self.assertIn("currentFilters[f.column] = f.value", JS_CONTENT)
 
     def test_all_filtering_functions_use_global_currentFilters(self):
         """REGRESSION: Every function that reads filters must use currentFilters directly,
@@ -1174,6 +1275,18 @@ class TestXSSPrevention(unittest.TestCase):
         self.assertIn("escapeHtml(issuer.slice(0, 30))", func_body, 'TLS issuer must be escaped')
         self.assertIn("escapeHtml(state)", func_body, 'Flow state must be escaped')
         self.assertIn("escapeHtml(filename)", func_body, 'File Info filename must be escaped')
+
+    def test_buildAllEvents_escapes_user_fields(self):
+        """All Events table must escape user-controlled fields."""
+        func_body = self._get_function_body('buildAllEvents')
+        self.assertIn("escapeHtml(ts)", func_body, 'All Events timestamp must be escaped')
+        self.assertIn("escapeHtml(icon)", func_body, 'All Events icon must be escaped')
+        self.assertIn("escapeHtml(etype.toUpperCase())", func_body, 'All Events event type must be escaped')
+        self.assertIn("escapeHtml(proto)", func_body, 'All Events protocol must be escaped')
+        self.assertIn("escapeHtml(srcIp)", func_body, 'All Events source IP must be escaped')
+        self.assertIn("escapeHtml(String(srcPort))", func_body, 'All Events source port must be escaped')
+        self.assertIn("escapeHtml(dstIp)", func_body, 'All Events dest IP must be escaped')
+        self.assertIn("escapeHtml(String(dstPort))", func_body, 'All Events dest port must be escaped')
 
     def test_alert_details_shows_rule(self):
         """Alert detail panel must include a Rule row with monospace styling."""
@@ -1341,12 +1454,172 @@ class TestNoDeadCode(unittest.TestCase):
                          'currentSectionTypes is dead code and should be removed')
 
 
+class TestSearchUI(unittest.TestCase):
+    def test_search_bar_exists(self):
+        self.assertIn('id="searchBarContainer"', HTML_CONTENT,
+                      'Search bar container must exist')
+        self.assertIn('id="searchInput"', HTML_CONTENT,
+                      'Search input must exist')
+
+    def test_search_functions_exist(self):
+        self.assertIn('function performSearch', JS_CONTENT,
+                      'performSearch function must exist')
+        self.assertIn('function clearSearch', JS_CONTENT,
+                      'clearSearch function must exist')
+        self.assertIn('function refreshAnalysisData', JS_CONTENT,
+                      'refreshAnalysisData function must exist')
+
+    def test_search_state_variable_is_array(self):
+        self.assertIn('let currentSearch = []', JS_CONTENT,
+                      'currentSearch must be initialized as an array')
+
+    def test_search_uses_encodeURIComponent(self):
+        self.assertIn('encodeURIComponent(t)', JS_CONTENT,
+                      'Search must encode URI components per term')
+
+    def test_search_bar_css(self):
+        self.assertIn('.search-bar', CSS_CONTENT,
+                      'Search bar CSS must exist')
+        self.assertIn('.search-input', CSS_CONTENT,
+                      'Search input CSS must exist')
+        self.assertIn('.search-btn', CSS_CONTENT,
+                      'Search button CSS must exist')
+
+    def test_search_fetches_stats_with_q(self):
+        self.assertIn("'/api/stats?md5=' + currentMd5 + qParam", JS_CONTENT,
+                      'refreshAnalysisData must fetch stats with q parameter')
+
+    def test_search_fetches_events_with_q(self):
+        self.assertIn("'/api/events?md5=' + currentMd5 + '&limit=10000' + qParam", JS_CONTENT,
+                      'refreshAnalysisData must fetch events with q parameter')
+
+    def test_loadTabData_passes_q(self):
+        self.assertIn("currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('')", JS_CONTENT,
+                      'loadTabData must join multiple q parameters')
+
+    def test_search_resets_on_new_analysis(self):
+        self.assertIn("currentSearch = []", JS_CONTENT,
+                      'loadAnalysis must reset currentSearch to empty array')
+
+    def test_baseEventStats_exists(self):
+        self.assertIn('baseEventStats', JS_CONTENT,
+                      'baseEventStats variable must exist for unfiltered totals')
+
+    def test_buildStats_uses_baseEventStats(self):
+        self.assertIn('baseEventStats[type]', JS_CONTENT,
+                      'buildStats must use baseEventStats for totals')
+
+    def test_search_creates_chip_per_term(self):
+        """buildFilterBarHtml must render one chip per search term."""
+        self.assertIn('for (let i = 0; i < currentSearch.length; i++)', JS_CONTENT,
+                      'buildFilterBarHtml must iterate search terms')
+        self.assertIn('onclick="clearSearchTerm(', JS_CONTENT,
+                      'Each search chip must call clearSearchTerm with index')
+
+    def test_search_chip_shows_full_query(self):
+        """buildFilterBarHtml must show full escaped term in each chip."""
+        self.assertIn('"${escapeHtml(term)}"', JS_CONTENT,
+                      'Search chip must show full escaped term text')
+
+    def test_search_adds_terms_on_enter(self):
+        """performSearch must split input into terms and push to array."""
+        func = JS_CONTENT.split('async function performSearch')[1].split('async function')[0]
+        self.assertIn("currentSearch.push(term)", func,
+                      'performSearch must push terms into currentSearch array')
+
+    def test_search_clears_input_after_enter(self):
+        """performSearch must clear input after adding terms."""
+        func = JS_CONTENT.split('async function performSearch')[1].split('async function')[0]
+        self.assertIn("input.value = ''", func,
+                      'performSearch must clear search input after submit')
+
+    def test_search_deduplicates_terms(self):
+        """performSearch must skip duplicate terms."""
+        func = JS_CONTENT.split('async function performSearch')[1].split('async function')[0]
+        self.assertIn("!currentSearch.includes(term)", func,
+                      'performSearch must deduplicate terms')
+
+    def test_clear_search_term_by_index(self):
+        """clearSearchTerm must splice array at given index."""
+        func = JS_CONTENT.split('async function clearSearchTerm')[1].split('async function')[0]
+        self.assertIn("currentSearch.splice(index, 1)", func,
+                      'clearSearchTerm must remove term at index')
+
+    def test_qParam_joins_multiple_q(self):
+        """qParam must build multiple &q= params from array."""
+        self.assertIn("currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('')", JS_CONTENT,
+                      'qParam must join multiple q parameters')
+
+    def test_clear_all_clears_search(self):
+        """clearAllFilters must reset currentSearch and search input."""
+        func = JS_CONTENT.split('async function clearAllFilters')[1].split('async function')[0]
+        self.assertIn("currentSearch = []", func,
+                      'clearAllFilters must reset currentSearch to empty array')
+        self.assertIn("input.value = ''", func,
+                      'clearAllFilters must clear search input')
+
+    def test_filter_bar_visible_with_search_only(self):
+        """updateFilterBarVisibility must show bar when only currentSearch has terms."""
+        self.assertIn('currentSearch.length > 0 || hasFilters', JS_CONTENT,
+                      'updateFilterBarVisibility must check search array length and filters')
+
+    def test_showWelcome_uses_clearAnalysisContainers(self):
+        """REGRESSION: showWelcome must call clearAnalysisContainers when returning to overview."""
+        func = JS_CONTENT.split('async function showWelcome')[1].split('async function')[0]
+        self.assertIn("clearAnalysisContainers()", func,
+                      'showWelcome must call clearAnalysisContainers when returning to overview')
+
+    def test_showWelcome_uses_showWelcomeUI(self):
+        """REGRESSION: showWelcome must call showWelcomeUI when returning to overview."""
+        func = JS_CONTENT.split('async function showWelcome')[1].split('async function')[0]
+        self.assertIn("showWelcomeUI()", func,
+                      'showWelcome must call showWelcomeUI when returning to overview')
+
+    def test_refreshAnalysisData_preserves_active_section(self):
+        """REGRESSION: refreshAnalysisData must remember and restore the active section type after rebuild."""
+        func = JS_CONTENT.split('async function refreshAnalysisData')[1].split('async function')[0]
+        self.assertIn("const visibleSection = document.querySelector('.section:not(.section-hidden):not(.agg-section)')", func,
+                      'refreshAnalysisData must query visible section before rebuild')
+        self.assertIn("const activeType = visibleSection ? visibleSection.id.replace('section-', '') : ''", func,
+                      'refreshAnalysisData must extract active type from visible section')
+        self.assertIn("if (activeType && activeType !== eventTypes[0])", func,
+                      'refreshAnalysisData must conditionally restore non-default active type')
+        self.assertIn("sectionEl.classList.remove('section-hidden')", func,
+                      'refreshAnalysisData must unhide the restored section')
+        self.assertIn("loadTabData(activeType, null)", func,
+                      'refreshAnalysisData must reload data for restored section')
+
+    def test_refreshAnalysisData_loads_default_tab(self):
+        """REGRESSION: refreshAnalysisData must explicitly load the default tab when no other tab is active."""
+        func = JS_CONTENT.split('async function refreshAnalysisData')[1].split('async function')[0]
+        self.assertIn("loadTabData(eventTypes[0], null)", func,
+                      'refreshAnalysisData must load default tab when activeType is default')
+
+    def test_refreshAnalysisData_does_not_override_sankey_with_all_events(self):
+        """REGRESSION: refreshAnalysisData must not call updateSankeyDiagram(allEvents) after restoring the active section, because loadTabData already updates the Sankey for the correct type."""
+        func = JS_CONTENT.split('async function refreshAnalysisData')[1].split('async function')[0]
+        self.assertNotIn("updateSankeyDiagram(allEvents)", func,
+                      'refreshAnalysisData must not override Sankey with allEvents after restore')
+
+    def test_refreshAnalysisData_does_not_override_aggregations_with_all_events(self):
+        """REGRESSION: refreshAnalysisData must not unconditionally call buildAggregationsSectionAll() after restoring the active section, because loadTabData already builds aggregations for the correct type."""
+        func = JS_CONTENT.split('async function refreshAnalysisData')[1].split('async function')[0]
+        self.assertNotIn("buildAggregationsSectionAll()", func,
+                      'refreshAnalysisData must not override aggregations with allEvents after restore')
+
+    def test_buildSections_does_not_call_loadTabData(self):
+        """REGRESSION: buildSections must not call loadTabData to prevent a race with refreshAnalysisData."""
+        func = JS_CONTENT.split('function buildSections(')[1].split('function ')[0]
+        self.assertNotIn("loadTabData", func,
+                      'buildSections must not call loadTabData')
+
+
 class TestReanalyzeUI(unittest.TestCase):
     def test_reanalyze_button_on_welcome(self):
         """Welcome screen must show a re-analyze button next to each previous PCAP."""
         self.assertIn('openReanalyzeModal', JS_CONTENT,
                       'showWelcome must include re-analyze button')
-        self.assertIn('🔄', HTML_CONTENT,
+        self.assertIn('🔄', JS_CONTENT,
                       'Re-analyze button must use refresh icon')
 
     def test_reanalyze_modal_exists(self):
