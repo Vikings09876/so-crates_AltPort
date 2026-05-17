@@ -18,6 +18,42 @@
             technique: { bg: '#ffa72633', text: '#ffa726' },
             informational: { bg: '#9e9e9e33', text: '#9e9e9e' }
         };
+        const COLORS = {
+            EVENT: {
+                alert: '#ff6b6b',
+                anomaly: '#ff9800',
+                dns: '#66bb6a',
+                filealerts: '#e91e63',
+                fileinfo: '#9c27b0',
+                flow: '#bc8cff',
+                ftp: '#00bcd4',
+                http: '#ffa726',
+                stats: '#9e9e9e',
+                tls: '#58a6ff',
+                connection: '#8b949e',
+            },
+            SEVERITY: {
+                1: '#ff6b6b',
+                2: '#ffa726',
+                3: '#ffca28',
+                4: '#66bb6a',
+                default: '#8b949e',
+            },
+            FILE_ALERT: {
+                bg: '#e91e6322',
+                text: '#ff8a8a',
+            },
+        };
+        const CONFIG = {
+            MAX_QUERY_LIMIT: 10000,
+            MAX_TYPE_QUERY_LIMIT: 5000,
+            MAX_POLLING_ATTEMPTS: 120,
+            POLLING_INTERVAL_MS: 1000,
+            TLS_ISSUER_MAX_LENGTH: 30,
+            AGGREGATION_TOP_N: 10,
+            SEARCH_DEBOUNCE_MS: 300,
+            SANKEY_BOTTOM_MARGIN: 60,
+        };
         function getClassificationStyle(c) {
             return CLASSIFICATION_STYLES[c] || CLASSIFICATION_STYLES.informational;
         }
@@ -64,7 +100,7 @@
             if (eventType === 'all') {
                 if (allEvents.length === 0) {
                     try {
-                        const resp = await fetch(`/api/events?md5=${currentMd5}&limit=5000${qParam}&t=${Date.now()}`);
+                        const resp = await fetch(`/api/events?md5=${currentMd5}&limit=${CONFIG.MAX_TYPE_QUERY_LIMIT}${qParam}&t=${Date.now()}`);
                         allEvents = await resp.json();
                     } catch(e) {
                         console.error('Failed to load all events:', e);
@@ -92,7 +128,7 @@
             }
             
             try {
-                const resp = await fetch(`/api/events?md5=${currentMd5}&type=${eventType}&limit=10000${qParam}&t=${Date.now()}`);
+                const resp = await fetch(`/api/events?md5=${currentMd5}&type=${eventType}&limit=${CONFIG.MAX_QUERY_LIMIT}${qParam}&t=${Date.now()}`);
                 const events = await resp.json();
                 tabDataCache[eventType] = events;
                 
@@ -272,115 +308,131 @@
             container.querySelectorAll('.packet-header > span:first-child').forEach(el => el.textContent = '▸');
         }
         
+        function htmlRow(label, innerHtml, className, style) {
+            const cls = className ? ` class="${className}"` : '';
+            const sty = style ? ` style="${style}"` : '';
+            return `<span style="color: #8b949e;">${escapeHtml(label)}</span><span${cls}${sty}>${innerHtml}</span>`;
+        }
+        
+        function htmlRowText(label, text, className, style) {
+            return htmlRow(label, escapeHtml(String(text || '')), className, style);
+        }
+        
+        function htmlSection(title, color) {
+            return `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: ${color};">${escapeHtml(title)}</span>`;
+        }
+        
         function formatEvent(e) {
             const ts = (e.timestamp || '').slice(0, 19);
             let html = `<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 0.85rem; min-width: 0;">`;
-            html += `<span style="color: #8b949e;">Timestamp</span><span>${escapeHtml(ts)}</span>`;
-            html += `<span style="color: #8b949e;">Event Type</span><span><span class="badge badge-info">${escapeHtml(e.event_type || '')}</span></span>`;
-            html += `<span style="color: #8b949e;">Protocol</span><span>${escapeHtml(e.proto || '')}</span>`;
-            html += `<span style="color: #8b949e;">Flow ID</span><span>${escapeHtml(String(e.flow_id || ''))}</span>`;
-            html += `<span style="color: #8b949e;">PCAP Count</span><span>${escapeHtml(String(e.pcap_cnt || ''))}</span>`;
+            html += htmlRowText('Timestamp', ts);
+            html += htmlRow('Event Type', `<span class="badge badge-info">${escapeHtml(e.event_type || '')}</span>`);
+            html += htmlRowText('Protocol', e.proto || '');
+            html += htmlRowText('Flow ID', e.flow_id || '');
+            html += htmlRowText('PCAP Count', e.pcap_cnt || '');
             
-            html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px;">Connection</span>`;
-            html += `<span style="color: #8b949e;">Source IP</span><span class="mono">${escapeHtml(e.src_ip || '')}</span><span style="color: #8b949e;">Source Port</span><span class="mono">${escapeHtml(String(e.src_port || ''))}</span>`;
-            html += `<span style="color: #8b949e;">Dest IP</span><span class="mono">${escapeHtml(e.dest_ip || '')}</span><span style="color: #8b949e;">Dest Port</span><span class="mono">${escapeHtml(String(e.dest_port || ''))}</span>`;
+            html += htmlSection('Connection', COLORS.EVENT.connection);
+            html += htmlRowText('Source IP', e.src_ip || '', 'mono');
+            html += htmlRowText('Source Port', e.src_port || '', 'mono');
+            html += htmlRowText('Dest IP', e.dest_ip || '', 'mono');
+            html += htmlRowText('Dest Port', e.dest_port || '', 'mono');
             
             if (e.event_type === 'alert') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #ff6b6b;">Alert Details</span>`;
-                html += `<span style="color: #8b949e;">Signature</span><span>${escapeHtml(e.alert?.signature || '')}</span>`;
-                html += `<span style="color: #8b949e;">Category</span><span><span class="badge badge-danger">${escapeHtml(e.alert?.category || '')}</span></span>`;
-                html += `<span style="color: #8b949e;">Severity</span><span>${escapeHtml(String(e.alert?.severity || ''))}</span>`;
-                html += `<span style="color: #8b949e;">Action</span><span>${escapeHtml(e.alert?.action || '')}</span>`;
-                html += `<span style="color: #8b949e;">GID</span><span>${escapeHtml(String(e.alert?.gid || ''))}</span>`;
-                html += `<span style="color: #8b949e;">SID</span><span>${escapeHtml(String(e.alert?.signature_id || ''))}</span>`;
-                html += `<span style="color: #8b949e;">Rule</span><span class="mono" style="white-space: pre-wrap; overflow-wrap: break-word; min-width: 0;">${escapeHtml(e.alert?.rule || '')}</span>`;
+                html += htmlSection('Alert Details', COLORS.EVENT.alert);
+                html += htmlRowText('Signature', e.alert?.signature);
+                html += htmlRow('Category', `<span class="badge badge-danger">${escapeHtml(e.alert?.category || '')}</span>`);
+                html += htmlRowText('Severity', e.alert?.severity);
+                html += htmlRowText('Action', e.alert?.action);
+                html += htmlRowText('GID', e.alert?.gid);
+                html += htmlRowText('SID', e.alert?.signature_id);
+                html += htmlRow('Rule', escapeHtml(e.alert?.rule || ''), 'mono', 'white-space: pre-wrap; overflow-wrap: break-word; min-width: 0;');
             }
             
             if (e.event_type === 'dns') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #66bb6a;">DNS Details</span>`;
-                html += `<span style="color: #8b949e;">Type</span><span>${escapeHtml(e.dns?.type || '')}</span>`;
-                html += `<span style="color: #8b949e;">Query Name</span><span class="mono">${escapeHtml(e.dns?.rrname || '')}</span>`;
-                html += `<span style="color: #8b949e;">Query Type</span><span>${escapeHtml(e.dns?.rrtype || '')}</span>`;
+                html += htmlSection('DNS Details', COLORS.EVENT.dns);
+                html += htmlRowText('Type', e.dns?.type);
+                html += htmlRowText('Query Name', e.dns?.rrname, 'mono');
+                html += htmlRowText('Query Type', e.dns?.rrtype);
                 if (e.dns?.answers) {
-                    html += `<span style="color: #8b949e;">Answers</span><span class="mono">${escapeHtml(e.dns.answers.map(a => a.rdata).join(', '))}</span>`;
+                    html += htmlRowText('Answers', e.dns.answers.map(a => a.rdata).join(', '), 'mono');
                 }
             }
             
             if (e.event_type === 'http') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #ffa726;">HTTP Details</span>`;
-                html += `<span style="color: #8b949e;">Method</span><span><span class="badge badge-info">${escapeHtml(e.http?.http_method || '')}</span></span>`;
-                html += `<span style="color: #8b949e;">Host</span><span class="mono">${escapeHtml(e.http?.hostname || '')}</span>`;
-                html += `<span style="color: #8b949e;">URL</span><span class="mono">${escapeHtml(e.http?.url || '')}</span>`;
-                html += `<span style="color: #8b949e;">User Agent</span><span style="word-break: break-all;">${escapeHtml(e.http?.http_user_agent || '')}</span>`;
-                html += `<span style="color: #8b949e;">Status</span><span>${escapeHtml(String(e.http?.status || ''))}</span>`;
-                html += `<span style="color: #8b949e;">Content Type</span><span>${escapeHtml(e.http?.http_content_type || '')}</span>`;
+                html += htmlSection('HTTP Details', COLORS.EVENT.http);
+                html += htmlRow('Method', `<span class="badge badge-info">${escapeHtml(e.http?.http_method || '')}</span>`);
+                html += htmlRowText('Host', e.http?.hostname, 'mono');
+                html += htmlRowText('URL', e.http?.url, 'mono');
+                html += htmlRowText('User Agent', e.http?.http_user_agent, '', 'word-break: break-all;');
+                html += htmlRowText('Status', e.http?.status);
+                html += htmlRowText('Content Type', e.http?.http_content_type);
             }
             
             if (e.event_type === 'tls') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #58a6ff;">TLS Details</span>`;
-                html += `<span style="color: #8b949e;">SNI</span><span class="mono">${escapeHtml(e.tls?.sni || '')}</span>`;
-                html += `<span style="color: #8b949e;">Version</span><span><span class="badge badge-info">${escapeHtml(e.tls?.version || '')}</span></span>`;
-                html += `<span style="color: #8b949e;">Subject</span><span class="mono">${escapeHtml(e.tls?.subject || '')}</span>`;
-                html += `<span style="color: #8b949e;">Issuer</span><span class="mono">${escapeHtml(e.tls?.issuerdn || '')}</span>`;
-                html += `<span style="color: #8b949e;">Not Before</span><span>${escapeHtml(e.tls?.notbefore || '')}</span>`;
-                html += `<span style="color: #8b949e;">Not After</span><span>${escapeHtml(e.tls?.notafter || '')}</span>`;
-                html += `<span style="color: #8b949e;">Fingerprint</span><span class="mono">${escapeHtml(e.tls?.fingerprint || '')}</span>`;
+                html += htmlSection('TLS Details', COLORS.EVENT.tls);
+                html += htmlRowText('SNI', e.tls?.sni, 'mono');
+                html += htmlRow('Version', `<span class="badge badge-info">${escapeHtml(e.tls?.version || '')}</span>`);
+                html += htmlRowText('Subject', e.tls?.subject, 'mono');
+                html += htmlRowText('Issuer', e.tls?.issuerdn, 'mono');
+                html += htmlRowText('Not Before', e.tls?.notbefore);
+                html += htmlRowText('Not After', e.tls?.notafter);
+                html += htmlRowText('Fingerprint', e.tls?.fingerprint, 'mono');
             }
             
             if (e.event_type === 'flow') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #bc8cff;">Flow Details</span>`;
-                html += `<span style="color: #8b949e;">State</span><span>${escapeHtml(e.flow?.state || '')}</span>`;
-                html += `<span style="color: #8b949e;">Age</span><span>${escapeHtml(String(e.flow?.age || ''))} seconds</span>`;
-                html += `<span style="color: #8b949e;">Pkts to Server</span><span>${escapeHtml(String((e.flow?.pkts_toserver || 0).toLocaleString()))}</span>`;
-                html += `<span style="color: #8b949e;">Pkts to Client</span><span>${escapeHtml(String((e.flow?.pkts_toclient || 0).toLocaleString()))}</span>`;
-                html += `<span style="color: #8b949e;">Bytes to Server</span><span>${escapeHtml(String((e.flow?.bytes_toserver || 0).toLocaleString()))}</span>`;
-                html += `<span style="color: #8b949e;">Bytes to Client</span><span>${escapeHtml(String((e.flow?.bytes_toclient || 0).toLocaleString()))}</span>`;
-                html += `<span style="color: #8b949e;">Alerted</span><span>${escapeHtml(e.flow?.alerted ? 'Yes' : 'No')}</span>`;
+                html += htmlSection('Flow Details', COLORS.EVENT.flow);
+                html += htmlRowText('State', e.flow?.state);
+                html += htmlRowText('Age', `${e.flow?.age || ''} seconds`);
+                html += htmlRowText('Pkts to Server', (e.flow?.pkts_toserver || 0).toLocaleString());
+                html += htmlRowText('Pkts to Client', (e.flow?.pkts_toclient || 0).toLocaleString());
+                html += htmlRowText('Bytes to Server', (e.flow?.bytes_toserver || 0).toLocaleString());
+                html += htmlRowText('Bytes to Client', (e.flow?.bytes_toclient || 0).toLocaleString());
+                html += htmlRowText('Alerted', e.flow?.alerted ? 'Yes' : 'No');
             }
             
             if (e.event_type === 'ftp') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #00bcd4;">FTP Details</span>`;
-                html += `<span style="color: #8b949e;">Command</span><span>${escapeHtml(e.ftp?.command || '')}</span>`;
-                html += `<span style="color: #8b949e;">Reply</span><span>${escapeHtml(String(e.ftp?.reply || ''))}</span>`;
-                html += `<span style="color: #8b949e;">Data Channel</span><span>${escapeHtml(e.ftp?.data_channel?.active ? 'Active' : 'Passive')}</span>`;
+                html += htmlSection('FTP Details', COLORS.EVENT.ftp);
+                html += htmlRowText('Command', e.ftp?.command);
+                html += htmlRowText('Reply', e.ftp?.reply);
+                html += htmlRowText('Data Channel', e.ftp?.data_channel?.active ? 'Active' : 'Passive');
             }
             
             if (e.event_type === 'anomaly') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #ff9800;">Anomaly Details</span>`;
-                html += `<span style="color: #8b949e;">Type</span><span>${escapeHtml(e.anomaly?.type || '')}</span>`;
-                html += `<span style="color: #8b949e;">Message</span><span>${escapeHtml(e.anomaly?.message || '')}</span>`;
+                html += htmlSection('Anomaly Details', COLORS.EVENT.anomaly);
+                html += htmlRowText('Type', e.anomaly?.type);
+                html += htmlRowText('Message', e.anomaly?.message);
             }
             
             if (e.event_type === 'filealerts') {
                 const fa = e.filealerts || {};
-                const classification = fa.confidence || 'informational';
-                html += `<span style="color: #8b949e;">Classification</span><span>${classificationBadgeHtml(classification)}</span>`;
-                html += `<span style="color: #8b949e;">Rule</span><span><span class="badge" style="background:#e91e6322;color:#ff8a8a">${escapeHtml(fa.rule_name || '')}</span></span>`;
-                html += `<span style="color: #8b949e;">SHA256</span><span class="mono">${escapeHtml(fa.sha256 || '')}</span>`;
-                html += `<span style="color: #8b949e;">Tags</span><span>${escapeHtml((fa.tags || []).join(', '))}</span>`;
+                const classification = fa.classification || 'informational';
+                html += htmlRow('Classification', classificationBadgeHtml(classification));
+                html += htmlRow('Rule', `<span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(fa.rule_name || '')}</span>`);
+                html += htmlRowText('SHA256', fa.sha256, 'mono');
+                html += htmlRowText('Tags', (fa.tags || []).join(', '));
                 if (fa.meta && Object.keys(fa.meta).length > 0) {
                     const metaEntries = Object.entries(fa.meta).map(([k, v]) => `${k}: ${v}`).join(', ');
-                    html += `<span style="color: #8b949e;">Metadata</span><span>${escapeHtml(metaEntries)}</span>`;
+                    html += htmlRowText('Metadata', metaEntries);
                 }
             }
-            
+
             if (e.event_type === 'fileinfo') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #9c27b0;">File Info</span>`;
-                html += `<span style="color: #8b949e;">Filename</span><span class="mono">${escapeHtml(e.fileinfo?.filename || '')}</span>`;
-                html += `<span style="color: #8b949e;">Magic</span><span>${escapeHtml(e.fileinfo?.magic || '')}</span>`;
-                html += `<span style="color: #8b949e;">MD5</span><span class="mono">${escapeHtml(e.fileinfo?.md5 || '')}</span>`;
-                html += `<span style="color: #8b949e;">SHA1</span><span class="mono">${escapeHtml(e.fileinfo?.sha1 || '')}</span>`;
-                html += `<span style="color: #8b949e;">SHA256</span><span class="mono">${escapeHtml(e.fileinfo?.sha256 || '')}</span>`;
-                html += `<span style="color: #8b949e;">Size</span><span>${escapeHtml(String((e.fileinfo?.size || 0).toLocaleString()))} bytes</span>`;
+                html += htmlSection('File Info', COLORS.EVENT.fileinfo);
+                html += htmlRowText('Filename', e.fileinfo?.filename, 'mono');
+                html += htmlRowText('Magic', e.fileinfo?.magic);
+                html += htmlRowText('MD5', e.fileinfo?.md5, 'mono');
+                html += htmlRowText('SHA1', e.fileinfo?.sha1, 'mono');
+                html += htmlRowText('SHA256', e.fileinfo?.sha256, 'mono');
+                html += htmlRowText('Size', `${(e.fileinfo?.size || 0).toLocaleString()} bytes`);
                 
                 const fileSha = e.fileinfo?.sha256 || '';
                 const matches = allEvents.filter(ev => ev.event_type === 'filealerts' && ev.filealerts?.sha256 === fileSha);
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #e91e63;">File Alerts</span>`;
+                html += htmlSection('File Alerts', COLORS.EVENT.filealerts);
                 if (matches.length > 0) {
                     matches.forEach(m => {
-                        html += `<span style="color: #8b949e;">Rule</span><span><span class="badge" style="background:#e91e6322;color:#ff8a8a">${escapeHtml(m.filealerts?.rule_name || '')}</span></span>`;
+                        html += htmlRow('Rule', `<span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(m.filealerts?.rule_name || '')}</span>`);
                         if (m.filealerts?.tags && m.filealerts.tags.length) {
-                            html += `<span style="color: #8b949e;">Tags</span><span>${escapeHtml(m.filealerts.tags.join(', '))}</span>`;
+                            html += htmlRowText('Tags', m.filealerts.tags.join(', '));
                         }
                     });
                 } else {
@@ -389,13 +441,13 @@
             }
             
             if (e.event_type === 'stats') {
-                html += `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: #9e9e9e;">Stats Details</span>`;
+                html += htmlSection('Stats Details', COLORS.EVENT.stats);
                 if (e.stats?.capture) {
-                    html += `<span style="color: #8b949e;">Kernel Packets</span><span>${escapeHtml(String((e.stats.capture.kernel_packets || 0).toLocaleString()))}</span>`;
-                    html += `<span style="color: #8b949e;">Kernel Drops</span><span>${escapeHtml(String((e.stats.capture.kernel_drops || 0).toLocaleString()))}</span>`;
+                    html += htmlRowText('Kernel Packets', (e.stats.capture.kernel_packets || 0).toLocaleString());
+                    html += htmlRowText('Kernel Drops', (e.stats.capture.kernel_drops || 0).toLocaleString());
                 }
                 if (e.stats?.detect) {
-                    html += `<span style="color: #8b949e;">Alerts</span><span>${escapeHtml(String((e.stats.detect.alert || 0).toLocaleString()))}</span>`;
+                    html += htmlRowText('Alerts', (e.stats.detect.alert || 0).toLocaleString());
                 }
             }
             
@@ -523,7 +575,7 @@
         
         async function showWelcome() {
             document.title = 'OhMyPCAP - Welcome';
-            if (window.location.search.includes('pcap=')) {
+            if (window.location.search.includes('file=') || window.location.search.includes('pcap=')) {
                 history.replaceState({}, '', window.location.pathname);
             }
             clearAnalysisContainers();
@@ -537,7 +589,7 @@
                 if (analyses.length > 0) {
                     previousHtml = analyses.map(a => 
                         `<div style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #30363d;">
-                            <a href="?pcap=${a.md5}" onclick="event.preventDefault(); loadAnalysis('${a.md5}');" style="color: #58a6ff; text-decoration: none; flex: 1;">📁 ${a.pcap}</a>
+                            <a href="?file=${a.md5}" onclick="event.preventDefault(); loadAnalysis('${a.md5}');" style="color: #58a6ff; text-decoration: none; flex: 1;">📁 ${a.pcap}</a>
                             <button onclick="openReanalyzeModal('${a.md5}', '${a.pcap}')" style="background: #30363d; border: none; color: #58a6ff; cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px; margin-right: 4px;" title="Re-analyze">🔄</button>
                             <button onclick="openDeleteAnalysis('${a.md5}', '${a.pcap}')" style="background: #30363d; border: none; color: #ff6b6b; cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px;" title="Delete">🗑️</button>
                         </div>`
@@ -800,19 +852,6 @@
             tls: 'TLS'
         };
         
-        const typeColors = {
-            alert: '#ff6b6b',
-            anomaly: '#ff9800',
-            dns: '#66bb6a',
-            filealerts: '#e91e63',
-            fileinfo: '#9c27b0',
-            flow: '#bc8cff',
-            ftp: '#00bcd4',
-            http: '#ffa726',
-            stats: '#9e9e9e',
-            tls: '#58a6ff'
-        };
-
         function buildSankeyData(events) {
             const nodeMap = new Map();
             const linkMap = new Map();
@@ -902,7 +941,7 @@
             const maxColNodes = Math.max(nodesByCol[0].length, nodesByCol[1].length, nodesByCol[2].length);
             const minNodeH = 8;
             const nodeGap = 4;
-            const height = Math.max(400, maxColNodes * (minNodeH + nodeGap) + 60);
+                    const height = Math.max(400, maxColNodes * (minNodeH + nodeGap) + CONFIG.SANKEY_BOTTOM_MARGIN);
             container.innerHTML = '';
 
             if (!data.nodes.length) return;
@@ -1076,8 +1115,7 @@
                     const sig = e.alert?.signature || 'N/A';
                     const cat = e.alert?.category || '';
                     const sev = e.alert?.severity || 0;
-                    const colors = { 1: '#ff6b6b', 2: '#ffa726', 3: '#ffca28', 4: '#66bb6a' };
-                    const sevColor = colors[sev] || '#8b949e';
+                    const sevColor = COLORS.SEVERITY[sev] || COLORS.SEVERITY.default;
                     colSpan = 9;
                     row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td>${escapeHtml(sig)}</td><td><span class="badge badge-danger">${escapeHtml(cat)}</span></td><td><span class="badge" style="background:${sevColor}33;color:${sevColor}">Sev ${sev}</span></td></tr>`;
                     break;
@@ -1092,7 +1130,7 @@
                     const host = e.http?.hostname || '';
                     const url = e.http?.url || '';
                     const status = e.http?.status || '';
-                    const ua = (e.http?.http_user_agent || '').slice(0, 30);
+                    const ua = (e.http?.http_user_agent || '').slice(0, CONFIG.TLS_ISSUER_MAX_LENGTH);
                     const streamId = `${srcIp},${srcPort},${dstIp},${dstPort}`;
                     const statusBadge = status && parseInt(status) < 400 ? 'badge-success' : status && parseInt(status) < 500 ? 'badge-warning' : 'badge-danger';
                     colSpan = 11;
@@ -1105,7 +1143,7 @@
                     let issuer = e.tls?.issuerdn || '-';
                     if (issuer && issuer.includes('CN=')) issuer = issuer.split('CN=')[1].split(',')[0];
                     colSpan = 10;
-                    row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td class="mono">${escapeHtml(sni)}</td><td><span class="badge badge-info">${escapeHtml(version)}</span></td><td class="mono">${escapeHtml(subject)}</td><td class="mono">${escapeHtml(issuer.slice(0, 30))}</td></tr>`;
+                    row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td class="mono">${escapeHtml(sni)}</td><td><span class="badge badge-info">${escapeHtml(version)}</span></td><td class="mono">${escapeHtml(subject)}</td><td class="mono">${escapeHtml(issuer.slice(0, CONFIG.TLS_ISSUER_MAX_LENGTH))}</td></tr>`;
                     break;
                 case 'flow':
                     const pktsTs = e.flow?.pkts_toserver || 0;
@@ -1128,9 +1166,9 @@
                     const fa = e.filealerts || {};
                     const ruleName = fa.rule_name || 'N/A';
                     const tags = (fa.tags || []).join(', ');
-                    const classification = fa.confidence || 'informational';
+                    const classification = fa.classification || 'informational';
                     colSpan = 9;
-                    row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge" style="background:#e91e6322;color:#ff8a8a">${escapeHtml(ruleName)}</span></td><td>${classificationBadgeHtml(classification)}</td><td>${escapeHtml(tags)}</td></tr>`;
+                    row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(ruleName)}</span></td><td>${classificationBadgeHtml(classification)}</td><td>${escapeHtml(tags)}</td></tr>`;
                     break;
                 default:
                     colSpan = 6;
@@ -1173,14 +1211,14 @@
             // Filter: show threat + technique by default
             const showInformational = false;
             const filteredEvents = events.filter(e => {
-                const classification = (e.filealerts || {}).confidence || 'informational';
+                const classification = (e.filealerts || {}).classification || 'informational';
                 return showInformational || classification !== 'informational';
             });
             
             let html = '<div class="file-alerts-grid">';
             filteredEvents.forEach(e => {
                 const fa = e.filealerts || {};
-                const classification = fa.confidence || 'informational';
+                const classification = fa.classification || 'informational';
                 const tags = (fa.tags || []).join(', ');
                 
                 html += `
@@ -1203,7 +1241,7 @@
             
             let html = '<div style="display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; font-size: 0.9rem;">';
             html += `<span style="color: #8b949e;">Classification</span><span>${classificationBadgeHtml(classification)}</span>`;
-            html += `<span style="color: #8b949e;">Rule</span><span><span class="badge" style="background:#e91e6322;color:#ff8a8a">${escapeHtml(fa.rule_name || '')}</span></span>`;
+            html += `<span style="color: #8b949e;">Rule</span><span><span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(fa.rule_name || '')}</span></span>`;
             html += `<span style="color: #8b949e;">SHA256</span><span class="mono">${escapeHtml(fa.sha256 || '')}</span>`;
             html += `<span style="color: #8b949e;">Tags</span><span>${escapeHtml((fa.tags || []).join(', '))}</span>`;
             if (fa.meta && Object.keys(fa.meta).length > 0) {
@@ -1382,7 +1420,7 @@
                     label: typeLabels[type] || type.toUpperCase(),
                     count: filtered,
                     total: total,
-                    color: typeColors[type] || '#58a6ff'
+                    color: COLORS.EVENT[type] || COLORS.EVENT.tls
                 });
             });
             
@@ -1538,7 +1576,7 @@
                     counts[key] = (counts[key] || 0) + 1;
                 }
                 
-                const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
                 
                 html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
                     <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${col.replace(/'/g, "\\'")}')" title="Hide">&times;</button></div>
@@ -1597,7 +1635,7 @@
                 case 'Filename': return e.fileinfo?.filename || '';
                 case 'Rule Name': return e.filealerts?.rule_name || '';
                 case 'Classification': {
-                    return getClassificationLabel(e.filealerts?.confidence || 'informational');
+                    return getClassificationLabel(e.filealerts?.classification || 'informational');
                 }
                 case 'Tags': return (e.filealerts?.tags || []).join(', ');
                 case 'Detail': {
@@ -1624,7 +1662,7 @@
         let sections = {};
         let eventTypes = [];
         let currentMd5 = '';
-          let currentPcapName = '';
+          let currentFileName = '';
           let currentFilters = {};
           let currentSearch = [];
           let advancedMode = false;
@@ -1772,7 +1810,7 @@
             const types = sortEventTypes(Object.keys(baseEventStats).filter(t => t !== 'stats' && t !== 'all'));
             eventTypes = types;
 
-            const eventsResp = await fetch('/api/events?md5=' + currentMd5 + '&limit=10000' + qParam + '&t=' + Date.now());
+            const eventsResp = await fetch('/api/events?md5=' + currentMd5 + '&limit=' + CONFIG.MAX_QUERY_LIMIT + qParam + '&t=' + Date.now());
             allEvents = await eventsResp.json();
 
             const isFileOnly = !eventTypes.includes('alert');
@@ -1832,10 +1870,10 @@
                 
                 if (result.success) {
                     currentMd5 = md5;
-                    currentPcapName = result.pcap_name || md5;
-                    document.title = 'OhMyPCAP - ' + currentPcapName;
+                    currentFileName = result.pcap_name || md5;
+                    document.title = 'OhMyPCAP - ' + currentFileName;
                     const urlParams = new URLSearchParams(window.location.search);
-                    urlParams.set('pcap', md5);
+                    urlParams.set('file', md5);
                     const newUrl = window.location.pathname + '?' + urlParams.toString();
                     if (window.location.href !== window.location.origin + newUrl) {
                         history.replaceState({}, '', newUrl);
@@ -1861,7 +1899,7 @@
                     // eventTypes should not include 'all' - it's added separately by buildStats()
                     eventTypes = types;
                     
-                    const eventsResp = await fetch('/api/events?md5=' + md5 + '&limit=10000&t=' + Date.now());
+                    const eventsResp = await fetch('/api/events?md5=' + md5 + '&limit=' + CONFIG.MAX_QUERY_LIMIT + '&t=' + Date.now());
                     allEvents = await eventsResp.json();
                     
                     eventTypes = types;
@@ -1902,7 +1940,7 @@
                                     </svg>
                                     Back to Overview
                                 </a>
-                                <span style="color: #f0f6fc; font-weight: 600; white-space: nowrap;">📄 ${currentPcapName}</span>
+                                <span style="color: #f0f6fc; font-weight: 600; white-space: nowrap;">📄 ${currentFileName}</span>
                                 <span style="color: #8b949e; font-size: 0.9rem; white-space: nowrap;">📁 ${currentMd5}</span>
                                 <span style="color: #8b949e; font-size: 0.9rem; white-space: nowrap;">📅 ${dateDisplay}</span>
                             </div>
@@ -1984,8 +2022,7 @@
                 const result = await resp.json();
                 
                 if (result.status === 'processing') {
-                    showLoading('Analyzing network traffic...');
-                    await checkStatus(result.md5);
+                    await checkStatus(result.md5, result.phase || 'network');
                     urlInput.value = exampleUrl;
                 } else if (result.status === 'ready') {
                     hideLoading();
@@ -2078,12 +2115,12 @@
             
             // Local timer updates elapsed time every 1s without hitting the server
             elapsedInterval = setInterval(() => {
-                const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+                const elapsedSec = Math.floor((Date.now() - startTime) / CONFIG.POLLING_INTERVAL_MS);
                 const msg = phaseMessages[currentPhase] || 'Analyzing file...';
                 showLoading(`${msg} (${elapsedSec}s)`);
-            }, 1000);
+            }, CONFIG.POLLING_INTERVAL_MS);
             
-            for (let i = 0; i < 60; i++) {
+            for (let i = 0; i < CONFIG.MAX_POLLING_ATTEMPTS; i++) {
                 await new Promise(r => setTimeout(r, 2000));
                 
                 try {
@@ -2212,7 +2249,7 @@
                 if (diagramMode && currentMd5) {
                     updateSankeyDiagram();
                 }
-            }, 300);
+            }, CONFIG.SEARCH_DEBOUNCE_MS);
         });
 
         async function init() {
@@ -2231,12 +2268,12 @@
                     // Ignore version fetch errors — footer shows placeholder
                 }
 
-                // Check for pcap query parameter
+                // Check for file query parameter (backward compatible with ?pcap=)
                 const urlParams = new URLSearchParams(window.location.search);
-                const pcapMd5 = urlParams.get('pcap');
+                const fileMd5 = urlParams.get('file') || urlParams.get('pcap');
                 
-                if (pcapMd5) {
-                    await loadAnalysis(pcapMd5);
+                if (fileMd5) {
+                    await loadAnalysis(fileMd5);
                 } else {
                     await showWelcome();
                 }

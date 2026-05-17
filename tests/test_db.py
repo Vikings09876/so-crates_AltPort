@@ -173,7 +173,7 @@ class TestSQLite(unittest.TestCase):
                 {
                     'rule_name': 'MALWARE_Test',
                     'sha256': 'a' * 64,
-                    'confidence': 'threat',
+                    'classification': 'threat',
                     'tags': ['malware'],
                     'meta': {'author': 'test'},
                     'strings': [],
@@ -193,7 +193,7 @@ class TestSQLite(unittest.TestCase):
         self.assertEqual(fa['proto'], 'TCP')
         self.assertEqual(fa['app_proto'], 'http')
         self.assertEqual(fa['filealerts']['rule_name'], 'MALWARE_Test')
-        self.assertEqual(fa['filealerts']['confidence'], 'threat')
+        self.assertEqual(fa['filealerts']['classification'], 'threat')
         self.assertEqual(fa['filealerts']['sha256'], 'a' * 64)
         # Stats should include filealerts
         stats = db.get_event_types_sqlite(self.db_file)
@@ -240,7 +240,7 @@ class TestSQLite(unittest.TestCase):
                 {
                     'rule_name': 'COBALTSTRIKE_Beacon',
                     'sha256': 'b' * 64,
-                    'confidence': 'threat',
+                    'classification': 'threat',
                     'tags': ['apt', 'cobaltstrike'],
                     'meta': {},
                     'strings': [],
@@ -266,7 +266,7 @@ class TestSQLite(unittest.TestCase):
         yara_matches = [
             {
                 'rule_name': 'MALWARE_Test',
-                'confidence': 'threat',
+                'classification': 'threat',
                 'tags': ['malware'],
                 'meta': {'author': 'test'},
                 'strings': [],
@@ -294,7 +294,7 @@ class TestSQLite(unittest.TestCase):
         self.assertEqual(fa['event_type'], 'filealerts')
         self.assertEqual(fa['proto'], '')
         self.assertEqual(fa['filealerts']['rule_name'], 'MALWARE_Test')
-        self.assertEqual(fa['filealerts']['confidence'], 'threat')
+        self.assertEqual(fa['filealerts']['classification'], 'threat')
         self.assertEqual(fa['filealerts']['sha256'], 'c' * 64)
 
 

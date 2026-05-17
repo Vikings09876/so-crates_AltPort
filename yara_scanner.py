@@ -6,6 +6,7 @@ finishes. Rules are baked into Docker images; non-Docker deployments download
 on first run if internet is available.
 """
 
+import config
 import json
 import os
 import re
@@ -23,7 +24,7 @@ NEO23X0_ZIP_SUBDIR = 'signature-base-master/yara'
 NEO23X0_INDEX = 'neo23x0-index.yar'
 
 # Classification for YARA-Rules (by parent directory)
-YARA_RULES_CONFIDENCE = {
+YARA_RULES_CLASSIFICATION = {
     'malware': 'threat',
     'maldocs': 'threat',
     'exploit_kits': 'threat',
@@ -41,7 +42,7 @@ YARA_RULES_CONFIDENCE = {
 
 # Classification for Neo23x0 (by case-insensitive prefix)
 # Ordered by priority (first match wins)
-NEO23X0_CONFIDENCE = [
+NEO23X0_CLASSIFICATION = [
     # Known threat detections
     ('MALW_', 'threat'), ('MAL_', 'threat'), ('APT_', 'threat'), ('apt', 'threat'),
     ('RAT_', 'threat'), ('RANSOM_', 'threat'), ('TOOLKIT_', 'threat'),
@@ -83,7 +84,7 @@ def _extract_rule_names_from_file(yar_path):
                 m = re.search(r'\brule\s+(\w+)', line)
                 if m:
                     names.append(m.group(1))
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         pass
     return names
 
@@ -112,21 +113,21 @@ def _build_rule_classifications(rules_dir):
                 idx = parts.index(YARA_RULES_SUBDIR)
                 if idx + 1 < len(parts):
                     parent_dir = parts[idx + 1]
-                    conf = YARA_RULES_CONFIDENCE.get(parent_dir, 'informational')
+                    classification = YARA_RULES_CLASSIFICATION.get(parent_dir, 'informational')
                 else:
-                    conf = 'informational'
+                    classification = 'informational'
                 for rule_name in _extract_rule_names_from_file(file_path):
-                    classifications[rule_name] = conf
+                    classifications[rule_name] = classification
             elif NEO23X0_SUBDIR in parts:
                 # Neo23x0: use prefix matching on each rule name in the file
                 for rule_name in _extract_rule_names_from_file(file_path):
                     name_upper = rule_name.upper()
-                    conf = 'informational'
-                    for prefix, level in NEO23X0_CONFIDENCE:
+                    classification = 'informational'
+                    for prefix, level in NEO23X0_CLASSIFICATION:
                         if name_upper.startswith(prefix.upper()):
-                            conf = level
+                            classification = level
                             break
-                    classifications[rule_name] = conf
+                    classifications[rule_name] = classification
 
     return classifications
 
@@ -163,7 +164,7 @@ def setup_yara_rules(data_dir=None):
             _generate_neo23x0_index(rules_dir)
             if os.path.isfile(neo_index) or os.path.isfile(yara_index):
                 return rules_dir
-        except Exception as e:
+        except OSError as e:
             print(f'Warning: could not copy baked-in YARA rules: {e}')
 
     # Try to download
@@ -174,7 +175,7 @@ def setup_yara_rules(data_dir=None):
             _clone_yara_rules(rules_dir)
             _generate_neo23x0_index(rules_dir)
             return rules_dir
-        except Exception as e:
+        except (OSError, urllib.error.URLError) as e:
             print(f'Warning: could not download YARA rules: {e}')
     else:
         print('No internet access detected — YARA rules not available')
@@ -198,7 +199,7 @@ def _download_neo23x0_rules(rules_dir):
     tmp_zip = os.path.join(rules_dir, 'neo23x0.zip')
 
     req = urllib.request.Request(NEO23X0_URL, headers={'User-Agent': 'Mozilla/5.0'})
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=config.YARA_DOWNLOAD_TIMEOUT) as resp:
         with open(tmp_zip, 'wb') as f:
             f.write(resp.read())
 
@@ -223,7 +224,7 @@ def _clone_yara_rules(rules_dir):
     if not os.path.isdir(yara_dir):
         subprocess.run(
             ['git', 'clone', '--depth', '1', YARA_RULES_GIT_URL, yara_dir],
-            capture_output=True, text=True, timeout=120, check=True
+            capture_output=True, text=True, timeout=config.YARA_CLONE_TIMEOUT, check=True
         )
     print('YARA-Rules downloaded successfully')
 
@@ -260,16 +261,47 @@ def _run_yara_with_index(index_path, list_path, filestore_dir=None):
                 '-d', 'owner=""',
                 '--scan-list', index_path, list_path
             ],
-            capture_output=True, text=True, timeout=300
+            capture_output=True, text=True, timeout=config.YARA_SCAN_TIMEOUT
         )
     except subprocess.TimeoutExpired:
         print(f'YARA scan timed out for {os.path.basename(index_path)}')
         return []
-    except Exception as e:
+    except (subprocess.CalledProcessError, OSError) as e:
         print(f'YARA scan error for {os.path.basename(index_path)}: {e}')
         return []
 
     return _parse_yara_output(result.stdout, filestore_dir)
+
+
+def _scan_with_indexes(list_path, rules_dir, dedup_key_fn, filestore_dir=None):
+    """Run YARA against both rule indexes and return deduplicated, classified matches.
+
+    Args:
+        list_path: Path to the --scan-list file.
+        rules_dir: Directory containing YARA rule indexes.
+        dedup_key_fn: Callable(match) -> hashable key for deduplication.
+        filestore_dir: Optional filestore directory for _run_yara_with_index.
+
+    Returns:
+        List of match dicts with 'classification' assigned.
+    """
+    rule_classifications = _build_rule_classifications(rules_dir)
+    all_matches = []
+    seen = set()
+
+    neo_index = os.path.join(rules_dir, NEO23X0_INDEX)
+    yara_index = os.path.join(rules_dir, YARA_RULES_SUBDIR, 'index.yar')
+
+    for index_path in (neo_index, yara_index):
+        matches = _run_yara_with_index(index_path, list_path, filestore_dir)
+        for m in matches:
+            key = dedup_key_fn(m)
+            if key not in seen:
+                seen.add(key)
+                m['classification'] = rule_classifications.get(m['rule_name'], 'informational')
+                all_matches.append(m)
+
+    return all_matches
 
 
 def run_yara_scan(filestore_dir, rules_dir):
@@ -282,14 +314,11 @@ def run_yara_scan(filestore_dir, rules_dir):
             'file_path': str,
             'tags': list[str],
             'meta': dict,
-            'confidence': str,
+            'classification': str,
         }
     """
     if not os.path.isdir(filestore_dir):
         return []
-
-    # Build rule classification mapping before scanning
-    rule_classifications = _build_rule_classifications(rules_dir)
 
     # Collect all extracted files
     target_files = []
@@ -309,27 +338,15 @@ def run_yara_scan(filestore_dir, rules_dir):
         list_path = list_file.name
 
     try:
-        # Run each ruleset independently to avoid duplicate identifier conflicts
-        all_matches = []
-        seen = set()
-
-        neo_index = os.path.join(rules_dir, NEO23X0_INDEX)
-        yara_index = os.path.join(rules_dir, YARA_RULES_SUBDIR, 'index.yar')
-
-        for index_path in (neo_index, yara_index):
-            matches = _run_yara_with_index(index_path, list_path, filestore_dir)
-            for m in matches:
-                key = (m['rule_name'], m['sha256'])
-                if key not in seen:
-                    seen.add(key)
-                    m['confidence'] = rule_classifications.get(m['rule_name'], 'informational')
-                    all_matches.append(m)
-
-        return all_matches
+        return _scan_with_indexes(
+            list_path, rules_dir,
+            dedup_key_fn=lambda m: (m['rule_name'], m['sha256']),
+            filestore_dir=filestore_dir
+        )
     finally:
         try:
             os.unlink(list_path)
-        except Exception:
+        except OSError:
             pass
 
 
@@ -417,7 +434,7 @@ def _sha256_from_meta(file_path):
             with open(meta_path, 'r') as f:
                 data = json.load(f)
             return data.get('fileinfo', {}).get('sha256', '')
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             pass
     return ''
 
@@ -481,33 +498,20 @@ def scan_single_file(file_path, rules_dir):
     file_md5 = md5.hexdigest()
     file_sha1 = sha1.hexdigest()
 
-    rule_classifications = _build_rule_classifications(rules_dir)
-
     # Write file list for --scan-list
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as list_file:
         list_file.write(file_path + '\n')
         list_path = list_file.name
 
     try:
-        all_matches = []
-        seen = set()
+        def dedup_and_fix(m):
+            m['sha256'] = file_sha256
+            return (m['rule_name'], file_sha256)
 
-        neo_index = os.path.join(rules_dir, NEO23X0_INDEX)
-        yara_index = os.path.join(rules_dir, YARA_RULES_SUBDIR, 'index.yar')
-
-        for index_path in (neo_index, yara_index):
-            matches = _run_yara_with_index(index_path, list_path)
-            for m in matches:
-                key = (m['rule_name'], file_sha256)
-                if key not in seen:
-                    seen.add(key)
-                    m['sha256'] = file_sha256
-                    m['confidence'] = rule_classifications.get(m['rule_name'], 'informational')
-                    all_matches.append(m)
-
-        return all_matches, file_sha256, file_md5, file_sha1
+        matches = _scan_with_indexes(list_path, rules_dir, dedup_key_fn=dedup_and_fix)
+        return matches, file_sha256, file_md5, file_sha1
     finally:
         try:
             os.unlink(list_path)
-        except Exception:
+        except OSError:
             pass

@@ -1,10 +1,10 @@
 # OhMyPCAP
 
-A standalone web application for analyzing PCAP files using Suricata. View network alerts and file alerts, browse network metadata (DNS, HTTP, TLS, flows), extract ASCII transcripts, view per-packet hexdumps, and carve individual streams — all from a single-page UI.
+A standalone web application for analyzing PCAP files and standalone files using Suricata and YARA. View network alerts and file alerts, browse network metadata (DNS, HTTP, TLS, flows), extract ASCII transcripts, view per-packet hexdumps, and carve individual streams — all from a single-page UI.
 
 ## Screenshots
 
-The welcome screen allows you to upload a PCAP file or load a previous analysis:
+The welcome screen allows you to upload a file or load a previous analysis:
 
 ![Welcome screen](docs/images/ohmypcap-welcome.png)
 
@@ -42,7 +42,7 @@ To slice and dice your data, expand the Aggregation Tables section and click on 
 - [Manual Installation](#manual-installation)
   - [Environment Variables](#environment-variables)
 - [Usage](#usage)
-  - [Analyze a PCAP](#analyze-a-pcap)
+  - [Analyze a File](#analyze-a-file)
   - [Navigate Results](#navigate-results)
   - [Stream Analysis](#stream-analysis)
 - [Data Storage](#data-storage)
@@ -59,7 +59,7 @@ The fastest way to try OhMyPCAP is with our online demo:
 https://securityonion.net/pcap
 
 Please note the following:
-- this is a cloud-based service so please do not share any sensitive PCAP files or any other sensitive info
+- this is a cloud-based service so please do not share any sensitive files or any other sensitive info
 - free accounts are limited to 60 minutes of usage before the instance is automatically terminated
 - if you need a private or permanent instance of OhMyPCAP, then you can proceed to the next section to perform a local installation of OhMyPCAP
 
@@ -243,16 +243,16 @@ Environment variables override the hardcoded defaults at startup.
 
 Once you've connected to OhMyPCAP in your browser, here are some of the things you can do.
 
-### Analyze a PCAP
+### Analyze a File
 
-1. **Upload a file** — click "Choose File" and select a `.pcap`, `.pcapng`, `.cap`, or `.trace` file (or a `.zip` containing one)
-2. **Load from URL** — paste a URL to a PCAP file and press **Enter** (or click **Go**). Password-protected zips from `malware-traffic-analysis.net` are auto-decrypted using the date-based password format
-3. **Reopen a previous analysis** — previously analyzed PCAPs are listed on the welcome screen
-4. **Re-analyze a previous PCAP** — click the 🔄 button next to any previous PCAP to delete its analysis and re-run Suricata (rules are updated first if internet access is available)
+1. **Upload a file** — click "Choose File" and select a `.pcap`, `.pcapng`, `.cap`, `.trace`, or any other file type (or a `.zip` containing one). PCAP files get full Suricata network analysis; non-PCAP files get YARA-only scanning
+2. **Load from URL** — paste a URL to a file and press **Enter** (or click **Go**). Password-protected zips from `malware-traffic-analysis.net` are auto-decrypted using the date-based password format
+3. **Reopen a previous analysis** — previously analyzed files are listed on the welcome screen
+4. **Re-analyze a previous file** — click the 🔄 button next to any previous file to delete its analysis and re-run Suricata (for PCAPs) or YARA (for non-PCAPs). Rules are updated first if internet access is available
 
 ### Navigate Results
 
-After Suricata finishes processing, the UI displays:
+After analysis completes, the UI displays:
 
 - **Stats Grid** — clickable cards showing event counts by type (Alerts, DNS, HTTP, TLS, Flows, etc.)
 - **Sankey Diagram** — expand the collapsible heading to visualize network flow relationships (Source IP → Dest IP → Dest Port)
@@ -270,7 +270,7 @@ Click any row in a data table to expand it, then:
 
 ## Data Storage
 
-All analyzed PCAPs are stored in `~/ohmypcap-data/`. Each analysis gets a subdirectory named by its MD5 hash containing:
+All analyzed files are stored in `~/ohmypcap-data/`. Each analysis gets a subdirectory named by its MD5 hash containing:
 
 ```
 ~/ohmypcap-data/
@@ -280,7 +280,7 @@ All analyzed PCAPs are stored in `~/ohmypcap-data/`. Each analysis gets a subdir
       suricata.rules       # Downloaded by suricata-update (online) or copied from baked-in image (offline/air-gapped)
     disable.conf
   <md5>/
-    <original-filename>.pcap   # The uploaded PCAP
+    <original-filename>        # The uploaded file
     eve.json                   # Suricata's JSON output
     events.db                  # SQLite index (auto-created after analysis)
     name.txt                   # Human-readable display name
@@ -293,8 +293,8 @@ All analyzed PCAPs are stored in `~/ohmypcap-data/`. Each analysis gets a subdir
 | Constant | Default | Description |
 |---|---|---|
 | `PORT` | `8000` | HTTP server port |
-| `DATA_DIR` | `~/ohmypcap-data` | Root directory for analyzed PCAPs |
-| `MAX_UPLOAD_SIZE` | `1000 MB` | Maximum PCAP upload size |
+| `DATA_DIR` | `~/ohmypcap-data` | Root directory for analyzed files |
+| `MAX_UPLOAD_SIZE` | `1000 MB` | Maximum file upload size |
 | `MAX_EVE_SIZE` | `1000 MB` | Maximum eve.json size |
 | `MAX_TRANSCRIPT_SIZE` | `100,000 chars` | Maximum ASCII transcript / hexdump length |
 
@@ -305,7 +305,7 @@ Suricata config is auto-generated from `/etc/suricata/` on first run. Rules are 
 - Binds to `127.0.0.1` only (no external access)
 - No CORS wildcard
 - Input validation on all endpoints (IP, port, MD5, path traversal)
-- PCAP magic byte validation (rejects non-PCAP uploads)
+- File type detection (PCAPs get full Suricata analysis; non-PCAPs get YARA-only scanning)
 - URL safety checks (blocks localhost, private IPs, resolves hostname)
 - Zip-slip prevention on archive extraction
 - Generic error messages (no internal details leaked)

@@ -6,6 +6,7 @@ import socket
 import subprocess
 import threading
 
+import config
 from db import create_sqlite_db
 from yara_scanner import run_yara_pipeline
 
@@ -50,12 +51,12 @@ def setup_suricata_config(data_dir=None):
                 if os.path.isfile(src):
                     try:
                         shutil.copy2(src, dst)
-                    except Exception as e:
+                    except OSError as e:
                         print(f'Warning: could not copy {src} to {dst}: {e}')
                 elif os.path.isdir(src):
                     try:
                         shutil.copytree(src, dst, dirs_exist_ok=True)
-                    except Exception as e:
+                    except OSError as e:
                         print(f'Warning: could not copy directory {src} to {dst}: {e}')
 
     suricata_config = os.path.join(suricata_dir, 'suricata.yaml')
@@ -98,17 +99,17 @@ def setup_suricata_config(data_dir=None):
         try:
             subprocess.run(
                 ['suricata-update', '--no-test', '-c', suricata_config, '--data-dir', suricata_dir, '--disable-conf', disable_conf, '--output', suricata_rules_dir],
-                timeout=60
+                timeout=config.SURICATA_UPDATE_TIMEOUT
             )
             print("Suricata rules updated successfully")
-        except Exception as e:
+        except (subprocess.CalledProcessError, OSError) as e:
             print(f'suricata-update warning: {e}')
     elif baked_in_rules_exist:
         print("No internet access detected — using baked-in Suricata rules")
         try:
             shutil.copytree(baked_in_rules_dir, suricata_rules_dir, dirs_exist_ok=True)
             print("Baked-in rules copied successfully")
-        except Exception as e:
+        except OSError as e:
             print(f'Warning: could not copy baked-in rules: {e}')
     else:
         print("Warning: no baked-in rules found and no internet access — Suricata may not have rules to use")
@@ -161,7 +162,7 @@ def spawn_suricata(dir_path, pcap_path, suricata_config_path=None):
         )
         threading.Thread(target=lambda: (proc.wait(), on_suricata_done()), daemon=True).start()
         return True
-    except Exception as e:
+    except (OSError, PermissionError) as e:
         _set_error(dir_path, f'Suricata failed to start: {e}')
         _clear_phase(dir_path)
         return False
@@ -173,7 +174,7 @@ def _set_phase(dir_path, phase):
     try:
         with open(phase_file, 'w') as f:
             f.write(phase)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -183,7 +184,7 @@ def _clear_phase(dir_path):
     try:
         if os.path.exists(phase_file):
             os.unlink(phase_file)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -193,7 +194,7 @@ def _set_error(dir_path, message):
     try:
         with open(error_file, 'w') as f:
             f.write(message)
-    except Exception:
+    except OSError:
         pass
 
 
@@ -203,5 +204,5 @@ def _clear_error(dir_path):
     try:
         if os.path.exists(error_file):
             os.unlink(error_file)
-    except Exception:
+    except OSError:
         pass

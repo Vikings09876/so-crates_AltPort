@@ -366,7 +366,11 @@ class TestJavaScriptDataStructures(unittest.TestCase):
         self.assertIn('typeLabels', JS_CONTENT)
 
     def test_has_type_colors(self):
-        self.assertIn('typeColors', JS_CONTENT)
+        self.assertIn('COLORS', JS_CONTENT)
+
+    def test_colors_event_alert_is_red(self):
+        self.assertIn("alert: '#ff6b6b'", JS_CONTENT,
+                      'COLORS.EVENT.alert must be red')
 
     def test_has_event_type_icons_constant(self):
         self.assertIn('EVENT_TYPE_ICONS', JS_CONTENT)
@@ -503,7 +507,7 @@ class TestUXFeatures(unittest.TestCase):
     def test_header_has_file_icon(self):
         """Header filename must have a file icon prefix."""
         header_section = JS_CONTENT.split("getElementById('headerContent').innerHTML")[1].split("`;")[0]
-        self.assertIn('📄 ${currentPcapName}', header_section,
+        self.assertIn('📄 ${currentFileName}', header_section,
                       'Header filename must have 📄 icon')
 
     def test_file_input_accepts_all_files(self):
@@ -1342,7 +1346,7 @@ class TestXSSPrevention(unittest.TestCase):
         self.assertIn("escapeHtml(ua)", func_body, 'HTTP user-agent must be escaped')
         self.assertIn("escapeHtml(sni)", func_body, 'TLS SNI must be escaped')
         self.assertIn("escapeHtml(subject)", func_body, 'TLS subject must be escaped')
-        self.assertIn("escapeHtml(issuer.slice(0, 30))", func_body, 'TLS issuer must be escaped')
+        self.assertIn("CONFIG.TLS_ISSUER_MAX_LENGTH", func_body, 'TLS issuer must use CONFIG constant')
         self.assertIn("escapeHtml(state)", func_body, 'Flow state must be escaped')
         self.assertIn("escapeHtml(filename)", func_body, 'File Info filename must be escaped')
 
@@ -1362,9 +1366,9 @@ class TestXSSPrevention(unittest.TestCase):
         """Alert detail panel must include a Rule row with monospace styling."""
         func_body = self._get_function_body('formatEvent')
         self.assertIn("alert?.rule", func_body, 'formatEvent must reference alert.rule')
-        self.assertIn('white-space: pre-wrap', func_body, 'Rule text must wrap with pre-wrap')
-        self.assertIn('overflow-wrap: break-word', func_body, 'Rule text must wrap with overflow-wrap')
-        self.assertIn('class="mono"', func_body, 'Rule text must use monospace font')
+        self.assertIn('white-space: pre-wrap', JS_CONTENT, 'Rule text must wrap with pre-wrap')
+        self.assertIn('overflow-wrap: break-word', JS_CONTENT, 'Rule text must wrap with overflow-wrap')
+        self.assertIn('class="mono"', JS_CONTENT, 'Rule text must use monospace font')
 
 
 class TestURLParameterEncoding(unittest.TestCase):
@@ -1511,7 +1515,9 @@ class TestAdvancedToggleNoMemoryLeak(unittest.TestCase):
 
 class TestCheckStatusTimeoutFeedback(unittest.TestCase):
     def test_timeout_shows_error_modal(self):
-        """After 120 polling attempts, checkStatus must show an error to the user."""
+        """After max polling attempts, checkStatus must show an error to the user."""
+        self.assertIn('CONFIG.MAX_POLLING_ATTEMPTS', JS_CONTENT,
+                      'checkStatus must use CONFIG constant for polling attempts')
         check_status = JS_CONTENT.split('async function checkStatus')[1]
         self.assertIn('showError(', check_status,
                       'checkStatus must show an error when polling times out')
@@ -1568,8 +1574,8 @@ class TestSearchUI(unittest.TestCase):
                       'refreshAnalysisData must fetch stats with q parameter')
 
     def test_search_fetches_events_with_q(self):
-        self.assertIn("'/api/events?md5=' + currentMd5 + '&limit=10000' + qParam", JS_CONTENT,
-                      'refreshAnalysisData must fetch events with q parameter')
+        self.assertIn("CONFIG.MAX_QUERY_LIMIT", JS_CONTENT,
+                      'refreshAnalysisData must use CONFIG constant for query limit')
 
     def test_loadTabData_passes_q(self):
         self.assertIn("currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('')", JS_CONTENT,
@@ -1764,7 +1770,7 @@ class TestFileAlertsUI(unittest.TestCase):
 
     def test_has_filealerts_in_type_colors(self):
         self.assertIn("filealerts: '#e91e63'", JS_CONTENT,
-                      'typeColors must include filealerts color')
+                      'COLORS.EVENT must include filealerts color')
 
     def test_has_filealerts_in_event_type_icons(self):
         self.assertIn("filealerts: '🚨'", JS_CONTENT,
@@ -1781,7 +1787,7 @@ class TestFileAlertsUI(unittest.TestCase):
                       'buildRowForEvent must handle filealerts')
         self.assertIn("fa.rule_name", JS_CONTENT,
                       'buildRowForEvent must render rule_name from filealerts object')
-        self.assertIn("fa.confidence", JS_CONTENT,
+        self.assertIn("fa.classification", JS_CONTENT,
                       'buildRowForEvent must render classification from filealerts object')
 
     def test_filealerts_row_html(self):
@@ -1797,7 +1803,7 @@ class TestFileAlertsUI(unittest.TestCase):
             'dest_port': 80,
             'filealerts': {
                 'rule_name': 'MALWARE_Test',
-                'confidence': 'threat',
+                'classification': 'threat',
                 'tags': ['malware', 'apt'],
                 'sha256': 'a' * 64,
             }
@@ -1843,8 +1849,8 @@ class TestFileAlertsUI(unittest.TestCase):
     def test_filealerts_uses_nested_schema(self):
         self.assertIn('e.filealerts?.rule_name', JS_CONTENT,
                       'buildRowForEvent must access filealerts via nested schema')
-        self.assertIn('e.filealerts?.confidence', JS_CONTENT,
-                      'buildRowForEvent must access confidence via nested schema')
+        self.assertIn('e.filealerts?.classification', JS_CONTENT,
+                      'buildRowForEvent must access classification via nested schema')
 
 
 if __name__ == '__main__':

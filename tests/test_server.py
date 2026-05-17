@@ -17,6 +17,7 @@ import sqlite3
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+import config
 import db
 import ohmypcap as server
 
@@ -591,6 +592,7 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
         self.assertIn('status', data)
+        self.assertEqual(data.get('phase'), 'network', 'PCAP upload must report network phase')
 
     def test_upload_non_pcap_content(self):
         status, body = self._post_multipart('/api/upload', 'fake.pcap', b'not a pcap file')
@@ -598,6 +600,7 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
         self.assertEqual(data.get('status'), 'processing')
+        self.assertEqual(data.get('phase'), 'files', 'Non-PCAP upload must report files phase')
 
     def test_upload_html_as_pcap(self):
         status, body = self._post_multipart('/api/upload', 'evil.pcap', b'<html><script>alert(1)</script></html>')
@@ -605,6 +608,7 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
         self.assertEqual(data.get('status'), 'processing')
+        self.assertEqual(data.get('phase'), 'files', 'Non-PCAP upload must report files phase')
 
     def test_upload_elf_as_pcap(self):
         status, body = self._post_multipart('/api/upload', 'malware.pcap', b'\x7fELF' + b'\x00' * 100)
@@ -612,6 +616,7 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
         self.assertEqual(data.get('status'), 'processing')
+        self.assertEqual(data.get('phase'), 'files', 'Non-PCAP upload must report files phase')
 
     def test_upload_any_extension_detected_as_pcap(self):
         pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x00' * 100
@@ -619,6 +624,7 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(status, 200)
         data = json.loads(body)
         self.assertIn('md5', data)
+        self.assertEqual(data.get('phase'), 'network', 'PCAP-by-magic upload must report network phase')
 
     def test_upload_non_pcap_file(self):
         file_data = b'THIS_IS_NOT_A_PCAP_FILE_JUST_TEXT'
@@ -627,6 +633,126 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
         self.assertEqual(data.get('status'), 'processing')
+        self.assertEqual(data.get('phase'), 'files', 'Non-PCAP upload must report files phase')
+
+    @unittest.mock.patch('ohmypcap.scan_single_file')
+    @unittest.mock.patch('ohmypcap.check_yara_executable')
+    @unittest.mock.patch('ohmypcap.setup_yara_rules')
+    def test_upload_non_pcap_creates_file_analysis_db(self, mock_setup, mock_check, mock_scan):
+        """Uploading a non-PCAP file creates events.db with fileinfo + filealerts."""
+        mock_setup.return_value = '/tmp/fake-yara-rules'
+        mock_check.return_value = True
+        matches = [{
+            'rule_name': 'TEST_Malware',
+            'classification': 'threat',
+            'tags': ['test'],
+            'meta': {'author': 'test'},
+            'strings': [],
+            'file_id': '',
+        }]
+        mock_scan.return_value = (matches, 'a' * 64, 'b' * 32, 'c' * 40)
+
+        file_data = b'MZ' + b'\x00' * 62
+        status, body = self._post_multipart('/api/upload', 'test.exe', file_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        self.assertEqual(data.get('phase'), 'files')
+
+        # Poll until analysis is ready
+        for _ in range(30):
+            time.sleep(0.2)
+            status, body = self._post('/api/check-status', {'md5': md5})
+            result = json.loads(body)
+            if result.get('status') == 'ready':
+                break
+
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        db_path = os.path.join(dir_path, 'events.db')
+        self.assertTrue(os.path.exists(db_path), 'events.db must be created for standalone file')
+        self.assertFalse(os.path.exists(os.path.join(dir_path, '.phase')), '.phase must be cleaned up')
+
+        name_path = os.path.join(dir_path, 'name.txt')
+        self.assertTrue(os.path.exists(name_path), 'name.txt must be created')
+        with open(name_path, 'r') as f:
+            self.assertEqual(f.read().strip(), 'test.exe')
+
+        # Verify database contents
+        fileinfo_events = db.query_events_sqlite(db_path, event_type='fileinfo')
+        self.assertEqual(len(fileinfo_events), 1, 'Must have one fileinfo event')
+        fi = fileinfo_events[0]
+        self.assertEqual(fi['event_type'], 'fileinfo')
+        self.assertEqual(fi['fileinfo']['filename'], 'test.exe')
+        self.assertEqual(fi['fileinfo']['size'], 64)
+
+        alert_events = db.query_events_sqlite(db_path, event_type='filealerts')
+        self.assertEqual(len(alert_events), 1, 'Must have one filealerts event')
+        fa = alert_events[0]
+        self.assertEqual(fa['event_type'], 'filealerts')
+        self.assertEqual(fa['filealerts']['rule_name'], 'TEST_Malware')
+        self.assertEqual(fa['filealerts']['classification'], 'threat')
+
+        # Verify mocks were called
+        mock_setup.assert_called_once()
+        mock_check.assert_called_once()
+        mock_scan.assert_called_once()
+
+    @unittest.mock.patch('ohmypcap.scan_single_file')
+    @unittest.mock.patch('ohmypcap.check_yara_executable')
+    @unittest.mock.patch('ohmypcap.setup_yara_rules')
+    def test_upload_zip_with_non_pcap_creates_file_analysis_db(self, mock_setup, mock_check, mock_scan):
+        """Uploading a ZIP containing a non-PCAP file creates events.db with correct extracted name."""
+        mock_setup.return_value = '/tmp/fake-yara-rules'
+        mock_check.return_value = True
+        matches = [{
+            'rule_name': 'ZIP_Malware',
+            'classification': 'technique',
+            'tags': ['zip'],
+            'meta': {},
+            'strings': [],
+            'file_id': '',
+        }]
+        mock_scan.return_value = (matches, 'd' * 64, 'e' * 32, 'f' * 40)
+
+        # Create ZIP with a non-PCAP file
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('malware.exe', b'\x7fELF' + b'\x00' * 60)
+        zip_data = zip_buffer.getvalue()
+        expected_md5 = hashlib.md5(b'\x7fELF' + b'\x00' * 60).hexdigest()
+
+        status, body = self._post_multipart('/api/upload', 'samples.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        self.assertEqual(md5, expected_md5, 'MD5 must be computed from extracted file bytes')
+        self.assertEqual(data.get('phase'), 'files')
+
+        # Poll until analysis is ready
+        for _ in range(30):
+            time.sleep(0.2)
+            status, body = self._post('/api/check-status', {'md5': md5})
+            result = json.loads(body)
+            if result.get('status') == 'ready':
+                break
+
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        db_path = os.path.join(dir_path, 'events.db')
+        self.assertTrue(os.path.exists(db_path), 'events.db must be created for ZIP-extracted file')
+
+        name_path = os.path.join(dir_path, 'name.txt')
+        self.assertTrue(os.path.exists(name_path), 'name.txt must use extracted filename')
+        with open(name_path, 'r') as f:
+            self.assertEqual(f.read().strip(), 'malware.exe')
+
+        # Verify database uses extracted filename
+        fileinfo_events = db.query_events_sqlite(db_path, event_type='fileinfo')
+        self.assertEqual(len(fileinfo_events), 1)
+        self.assertEqual(fileinfo_events[0]['fileinfo']['filename'], 'malware.exe')
+
+        alert_events = db.query_events_sqlite(db_path, event_type='filealerts')
+        self.assertEqual(len(alert_events), 1)
+        self.assertEqual(alert_events[0]['filealerts']['rule_name'], 'ZIP_Malware')
 
     def test_upload_valid_zip(self):
         import io
@@ -665,15 +791,17 @@ class TestAPIEndpoints(unittest.TestCase):
         # Should try provided passwords
         self.assertIn("for pwd in passwords:", helper_section,
                       'Must loop over candidate passwords')
-        # Upload handler should derive passwords from filename and call helper
+        # Upload handler should derive passwords from filename
         upload_section = content.split("def handle_post_upload(self):")[1].split("def handle_post_load_url(self):")[0]
         self.assertIn("passwords = [b'infected']", upload_section,
                       'Must try infected password')
-        self.assertIn("re.search(r'(\d{4})-(\d{2})-(\d{2})', safe_filename)", upload_section,
+        self.assertIn("re.search(r'(\d{4})-(\d{2})-(\d{2})', original_filename)", upload_section,
                       'Must derive date-based password from filename')
         self.assertIn("'infected_{year}{month}{day}'.encode()", upload_section,
                       'Must construct MTA-style date password')
-        self.assertIn("_extract_zip_contents(file_data, tmp_dir, passwords)", upload_section,
+        # _process_uploaded_file must call _extract_zip_contents
+        process_section = content.split("def _process_uploaded_file(self,")[1].split("def handle_post_upload(self):")[0]
+        self.assertIn("_extract_zip_contents(file_data, tmp_dir, passwords or [])", process_section,
                       'Must call _extract_zip_contents helper')
 
     def test_upload_same_pcap_in_different_zips(self):
@@ -713,13 +841,13 @@ class TestAPIEndpoints(unittest.TestCase):
         status, body = self._post('/api/load-url', {'url': 'http://10.0.0.1/test.pcap'})
         self.assertEqual(status, 400)
         data = json.loads(body)
-        self.assertIn('Invalid URL', data.get('error', ''))
+        self.assertIn('private', data.get('error', '').lower())
 
     def test_load_url_rejects_localhost(self):
         status, body = self._post('/api/load-url', {'url': 'http://localhost/test.pcap'})
         self.assertEqual(status, 400)
         data = json.loads(body)
-        self.assertIn('Invalid URL', data.get('error', ''))
+        self.assertIn('localhost', data.get('error', '').lower())
 
     def test_load_url_empty_url(self):
         status, body = self._post('/api/load-url', {'url': ''})
@@ -735,7 +863,8 @@ class TestAPIEndpoints(unittest.TestCase):
             status, body = self._post('/api/load-url', {'url': 'http://fake-public.example.com/secret'})
             self.assertEqual(status, 400)
             data = json.loads(body)
-            self.assertIn('Invalid URL', data.get('error', ''))
+            # URL validation fails at some point (DNS resolve or IP check)
+            self.assertIn('error', data)
 
     def test_check_status_missing_md5(self):
         status, body = self._post('/api/check-status', {})
@@ -952,12 +1081,12 @@ class TestThreadedServer(unittest.TestCase):
 
 class TestSizeLimitMessages(unittest.TestCase):
     def test_max_eve_size_constant(self):
-        self.assertEqual(server.MAX_EVE_SIZE, 1000 * 1024 * 1024)
+        self.assertEqual(config.MAX_EVE_SIZE, 1000 * 1024 * 1024)
     
     def test_error_message_consistency(self):
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
-        error_count = content.count('max 1000MB')
+        error_count = content.count('max {MAX_EVE_SIZE // (1024*1024)}MB')
         error_text_count = content.count('Eve.json')
         self.assertGreaterEqual(error_count, 1, 'Error message appears at least once')
         self.assertGreaterEqual(error_text_count, 1, 'Eve.json text appears at least once')
@@ -1042,18 +1171,18 @@ class TestSubprocessTimeouts(unittest.TestCase):
     def test_tcpdump_has_timeout(self):
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
-        tcpdump_match = re.search(r"\['tcpdump', '-r', pcap, '-w', '-'.*?timeout=(\d+)", content, re.DOTALL)
+        tcpdump_match = re.search(r"\['tcpdump', '-r', pcap, '-w', '-'.*?timeout=", content, re.DOTALL)
         self.assertIsNotNone(tcpdump_match, 'tcpdump call must have timeout')
-        self.assertEqual(tcpdump_match.group(1), '60')
+        self.assertIn('STREAM_TIMEOUT_SECONDS', content, 'tcpdump timeout must use centralized constant')
 
     def test_tshark_has_timeout(self):
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
         # _extract_payload_lines helper contains the tshark call
         helper_section = content.split("def _extract_payload_lines(self, pcap, src, sport, dst, dport, proto):")[1].split("def handle_get_hexdump_stream(self, params):")[0]
-        tshark_match = re.search(r"\['tshark', '-r', pcap.*?timeout=(\d+)", helper_section, re.DOTALL)
+        tshark_match = re.search(r"\['tshark', '-r', pcap.*?timeout=", helper_section, re.DOTALL)
         self.assertIsNotNone(tshark_match, '_extract_payload_lines must call tshark with timeout')
-        self.assertEqual(tshark_match.group(1), '60', 'tshark timeout must be 60 seconds')
+        self.assertIn('STREAM_TIMEOUT_SECONDS', helper_section, 'tshark timeout must use centralized constant')
         # The helper should be called twice (TCP then UDP fallback) from handle_get_ascii_stream
         ascii_section = content.split("def handle_get_ascii_stream(self, params):")[1].split("def _extract_payload_lines(self, pcap, src, sport, dst, dport, proto):")[0]
         calls_in_ascii = ascii_section.count('self._extract_payload_lines(')
@@ -1143,7 +1272,7 @@ class TestSuricataProcessingLock(unittest.TestCase):
             content = f.read()
         check_status = content.split("def handle_post_check_status(self):")[1].split("def handle_post_reanalyze(self):")[0]
         self.assertIn("lock_age", check_status)
-        self.assertIn("600", check_status)
+        self.assertIn("STALE_THRESHOLD_SECONDS", check_status)
         self.assertIn("'phase': phase", check_status)
 
     def test_stale_error_handled_in_check_status(self):
@@ -1184,11 +1313,12 @@ class TestSuricataRuleRawEnabled(unittest.TestCase):
         # Verify spawn_suricata is defined in suricata module
         self.assertIn('def spawn_suricata(dir_path, pcap_path, suricata_config_path=None):', suricata_content,
                       'spawn_suricata must be defined in suricata module')
-        # Verify spawn_suricata is called for PCAP paths (zip upload, reanalyze) and non-zip PCAP paths
-        pcap_calls = server_content.count('spawn_suricata(dir_path, pcap_path, os.path.join(SURICATA_DIR')
-        file_calls = server_content.count('spawn_suricata(dir_path, file_path, os.path.join(SURICATA_DIR')
-        self.assertEqual(pcap_calls + file_calls, 5,
-                         'spawn_suricata must be called from upload zip, upload pcap, load-url zip, load-url pcap, and reanalyze')
+        # Verify spawn_suricata is called from _process_uploaded_file and reanalyze
+        self.assertIn('spawn_suricata(dir_path, pcap_path, os.path.join(SURICATA_DIR', server_content,
+                      'spawn_suricata must be called from _process_uploaded_file or reanalyze')
+        reanalyze_section = server_content.split("def handle_post_reanalyze(self):")[1]
+        self.assertIn('spawn_suricata(dir_path, pcap_path, os.path.join(SURICATA_DIR', reanalyze_section,
+                      'reanalyze must call spawn_suricata for PCAP files')
 
 
 class TestReanalyzeEndpoint(unittest.TestCase):

@@ -142,7 +142,7 @@ Extracts per-packet hex dumps from a TCP/UDP stream using `tcpdump -X`. Truncate
 
 ### `GET /api/analyses`
 
-Lists all previously-analyzed PCAPs.
+Lists all previously-analyzed files.
 
 **Response:** Array of `{"md5": "<hash>", "pcap": "<display name>"}` sorted alphabetically by name.
 
@@ -199,9 +199,9 @@ Returns the filesystem path to the PCAP file in an MD5 directory.
 
 ### `POST /api/upload`
 
-Uploads a PCAP file for analysis. Accepts multipart form data.
+Uploads a file for analysis. Accepts multipart form data.
 
-**Request:** Multipart form with a file field. Accepts `.pcap`, `.pcapng`, `.cap`, `.trace`, or `.zip`.
+**Request:** Multipart form with a file field. Accepts any file type. PCAPs (`.pcap`, `.pcapng`, `.cap`, `.trace`) get full Suricata network analysis; non-PCAP files get YARA-only scanning.
 
 **Response (new file):**
 ```json
@@ -214,11 +214,12 @@ Uploads a PCAP file for analysis. Accepts multipart form data.
 ```
 
 **Processing flow:**
-1. Validates file content (PCAP magic bytes or `.zip` extension)
+1. Detects file type (PCAP magic bytes or `.zip` extension)
 2. Computes MD5 hash
-3. If already analyzed (eve.json exists), returns `ready`
-4. Otherwise saves file, spawns Suricata in background thread, returns `processing`
-5. When Suricata finishes, eve.json is indexed into SQLite (`events.db`)
+3. If already analyzed (`eve.json` for PCAPs, `events.db` for non-PCAPs), returns `ready`
+4. For PCAPs: saves file, spawns Suricata in background thread, returns `processing`
+5. For non-PCAPs: saves file, runs YARA scan in background thread, returns `processing`
+6. When analysis finishes, results are indexed into SQLite (`events.db`)
 
 **Client should poll** `GET /api/check-status` with the returned MD5 to know when analysis is complete.
 
@@ -226,7 +227,7 @@ Uploads a PCAP file for analysis. Accepts multipart form data.
 
 ### `POST /api/load-url`
 
-Downloads a PCAP from a URL and analyzes it.
+Downloads a file from a URL and analyzes it.
 
 **Request Body:**
 ```json
@@ -246,7 +247,7 @@ Downloads a PCAP from a URL and analyzes it.
 
 ### `POST /api/check-status`
 
-Polls whether Suricata has finished processing an uploaded PCAP.
+Polls whether analysis has finished for an uploaded file.
 
 **Request Body:**
 ```json
@@ -262,7 +263,7 @@ or
 {"status": "processing"}
 ```
 
-**Ready detection:** Checks that eve.json exists, is >10 bytes, and has at least one non-empty line.
+**Ready detection:** For PCAPs, checks that `eve.json` exists and `events.db` is present. For standalone files, checks that `events.db` exists.
 
 ---
 
@@ -271,7 +272,7 @@ or
 | Code | Meaning |
 |---|---|
 | `400` | Invalid input (bad IP, port, MD5, URL, path traversal) |
-| `404` | Resource not found (no PCAP, no analysis, no packets) |
+| `404` | Resource not found (no file, no analysis, no packets) |
 | `413` | File too large |
 | `429` | Rate limited (currently always returns true — no-op) |
 | `500` | Internal server error (generic message, no details leaked) |
