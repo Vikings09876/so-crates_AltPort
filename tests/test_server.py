@@ -1125,10 +1125,12 @@ class TestSuricataConfigRulesPath(unittest.TestCase):
         with open(suricata_config, 'r') as f:
             content = f.read()
         
-        # Verify default-rule-path points to our custom directory
-        expected_path = server.SURICATA_RULES_DIR
-        self.assertIn(expected_path, content,
-                      f'suricata.yaml should use custom rules path {expected_path}')
+        # Verify default-rule-path points to a custom directory
+        # (may be ~/ohmypcap-data/suricata/rules for native or /data/suricata/rules for container)
+        native_path = os.path.expanduser('~/ohmypcap-data/suricata/rules')
+        container_path = '/data/suricata/rules'
+        self.assertTrue(native_path in content or container_path in content,
+                        f'suricata.yaml should use custom rules path (either {native_path} or {container_path})')
         self.assertNotIn('/var/lib/suricata/rules', content,
                          'suricata.yaml should not use system rules path')
 
