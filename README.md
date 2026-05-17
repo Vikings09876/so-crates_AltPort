@@ -1,6 +1,6 @@
 # OhMyPCAP
 
-A standalone web application for analyzing PCAP files and standalone files using Suricata and YARA. View network alerts and file alerts, browse network metadata (DNS, HTTP, TLS, flows), extract ASCII transcripts, view per-packet hexdumps, and carve individual streams — all from a single-page UI.
+A standalone web application for analyzing PCAP files using Suricata and other files using YARA. View network alerts and file alerts, browse network metadata (DNS, HTTP, TLS, flows), extract ASCII transcripts, view per-packet hexdumps, and carve individual streams — all from a single-page UI.
 
 ## Screenshots
 

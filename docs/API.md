@@ -263,7 +263,7 @@ or
 {"status": "processing"}
 ```
 
-**Ready detection:** For PCAPs, checks that `eve.json` exists and `events.db` is present. For standalone files, checks that `events.db` exists.
+**Ready detection:** For PCAPs, checks that `eve.json` exists and `events.db` is present. For other files, checks that `events.db` exists.
 
 ---
 
