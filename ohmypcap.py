@@ -956,7 +956,7 @@ def main():
     |                                                              |
     | Analyze files from the web or your local collection.         |
     |                                                              |
-    | View alerts and then slice and dice your network metadata    |
+    | View alerts and then slice and dice your network metadata!   |
     ================================================================
     """)
 
@@ -964,8 +964,8 @@ def main():
     setup_suricata_config(DATA_DIR)
     setup_yara_rules(DATA_DIR)
 
-    if os.environ.get('MINIMAL_STARTUP_MSG'):
-        msg = 'OhMyPCAP running'
+    if os.environ.get('DEMO'):
+        msg = 'OhMyPCAP is now running. Click the link on the left!'
     else:
         msg = f'OhMyPCAP running at http://{BIND_ADDRESS}:{PORT}/ohmypcap.html'
     padding = ' ' * (61 - len(msg))
