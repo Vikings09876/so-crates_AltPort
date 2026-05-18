@@ -556,7 +556,7 @@ class TestUXFeatures(unittest.TestCase):
     def test_upload_shows_loading_immediately(self):
         """uploadPcap must show loading before fetch so user sees feedback during upload."""
         upload_func = JS_CONTENT.split('async function uploadPcap')[1].split('async function checkStatus')[0]
-        self.assertIn("showLoading('Uploading file...')", upload_func,
+        self.assertIn("showLoading('Uploading file... (0s)')", upload_func,
                       'uploadPcap must show loading immediately before fetch')
 
     def test_url_input_submits_on_enter(self):

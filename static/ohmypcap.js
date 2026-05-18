@@ -2011,8 +2011,13 @@
                 return;
             }
             
-            showLoading('Downloading PCAP...');
-            
+            showLoading('Downloading PCAP... (0s)');
+            const downloadStart = Date.now();
+            let downloadInterval = setInterval(() => {
+                const elapsedSec = Math.floor((Date.now() - downloadStart) / 1000);
+                showLoading(`Downloading PCAP... (${elapsedSec}s)`);
+            }, 1000);
+
             try {
                 const resp = await fetch('/api/load-url', {
                     method: 'POST',
@@ -2020,7 +2025,8 @@
                     body: JSON.stringify({url: url})
                 });
                 const result = await resp.json();
-                
+                clearInterval(downloadInterval);
+
                 if (result.status === 'processing') {
                     await checkStatus(result.md5, result.phase || 'network');
                     urlInput.value = exampleUrl;
@@ -2033,6 +2039,7 @@
                     showError(result.error || 'Unknown error');
                 }
             } catch(err) {
+                clearInterval(downloadInterval);
                 hideLoading();
                 showError(err.message);
             }
@@ -2043,7 +2050,12 @@
             const file = droppedFile || fileInput.files[0];
             if (!file) return;
 
-            showLoading('Uploading file...');
+            showLoading('Uploading file... (0s)');
+            const uploadStart = Date.now();
+            let uploadInterval = setInterval(() => {
+                const elapsedSec = Math.floor((Date.now() - uploadStart) / 1000);
+                showLoading(`Uploading file... (${elapsedSec}s)`);
+            }, 1000);
 
             const formData = new FormData();
             formData.append('pcap', file);
@@ -2054,6 +2066,7 @@
                     body: formData
                 });
                 const result = await resp.json();
+                clearInterval(uploadInterval);
 
                 if (!resp.ok || result.error) {
                     hideLoading();
@@ -2069,6 +2082,7 @@
                     await checkStatus(result.md5, result.phase || 'network');
                 }
             } catch(err) {
+                clearInterval(uploadInterval);
                 hideLoading();
                 showError(err.message);
             }
