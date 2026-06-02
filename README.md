@@ -4,9 +4,15 @@ A standalone web application for analyzing network traffic (PCAP), log files, an
 
 ## Screenshots
 
-The welcome screen allows you to upload a file or load a previous analysis:
+When you first connect to SO-CRATES, a window will appear with an overview of SO-CRATES:
 
 ![Welcome screen](docs/images/so-crates-welcome.png)
+
+If you need to refer to this again later, you can click the ? in the upper right corner of the main screen.
+
+The main screen allows you to upload a file or load a previous analysis:
+
+![Main screen](docs/images/so-crates-main.png)
 
 After analysis, you can view network alerts, file alerts, network metadata, and extract streams:
 
