@@ -2377,14 +2377,18 @@ class TestDockerfile(unittest.TestCase):
         self.assertNotIn('pip3 install zircolite', content.lower(),
                           'Dockerfile must not use pip to install Zircolite')
 
-    def test_dockerfile_installs_zircolite_requirements(self):
-        """Dockerfile must install Zircolite Python dependencies from requirements.txt."""
+    def test_dockerfile_installs_zircolite_in_venv(self):
+        """Dockerfile must install Zircolite dependencies in an isolated Python venv."""
         with open(DOCKERFILE, 'r') as f:
             content = f.read()
+        self.assertIn('python3-venv', content,
+                      'Dockerfile must install python3-venv package')
+        self.assertIn('python3 -m venv /usr/local/lib/zircolite-venv', content,
+                      'Dockerfile must create a zircolite virtual environment')
+        self.assertIn('/usr/local/lib/zircolite-venv/bin/pip install', content,
+                      'Dockerfile must install Zircolite deps into the venv')
         self.assertIn('requirements.txt', content,
                       'Dockerfile must install Zircolite requirements.txt')
-        self.assertIn('pip3 install', content,
-                      'Dockerfile must use pip3 to install dependencies')
 
     def test_dockerfile_copies_socrates_files(self):
         """Dockerfile must copy all SO-CRATES source files."""
@@ -2408,6 +2412,13 @@ class TestDockerfile(unittest.TestCase):
         self.assertIn('cargo', content, 'Dockerfile must install cargo')
         self.assertIn('libxml2-dev', content, 'Dockerfile must install libxml2-dev')
         self.assertIn('libxslt1-dev', content, 'Dockerfile must install libxslt1-dev')
+
+    def test_dockerfile_venv_owned_by_app_user(self):
+        """Dockerfile must chown the Zircolite venv so the non-root user can use it."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('chown -R 1000:1000 /usr/local/lib/zircolite-venv', content,
+                      'Dockerfile must set venv ownership to the app user')
 
     def test_dockerfile_exposes_port_8000(self):
         """Dockerfile must expose port 8000."""

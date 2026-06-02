@@ -29,6 +29,7 @@ ZIRCOLITE_CONFIG_PATHS = [
     '/usr/local/lib/zircolite/config/config.yaml',
     '/usr/share/zircolite/config/config.yaml',
 ]
+ZIRCOLITE_VENV_PYTHON = '/usr/local/lib/zircolite-venv/bin/python3'
 
 
 def is_zircolite_available():
@@ -206,9 +207,10 @@ def run_zircolite(log_path, rules_file, output_json, output_db=None):
     # Write Zircolite's own log file to the analysis directory, not the project root
     zircolite_log = os.path.join(os.path.dirname(output_json), 'zircolite.log')
 
+    python_cmd = ZIRCOLITE_VENV_PYTHON if os.path.isfile(ZIRCOLITE_VENV_PYTHON) else 'python3'
     try:
         cmd = [
-            'python3', zircolite,
+            python_cmd, zircolite,
             '--events', log_path,
             '--ruleset', rules_file,
             '-o', output_json,
