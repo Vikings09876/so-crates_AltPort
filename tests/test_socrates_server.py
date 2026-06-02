@@ -2398,6 +2398,17 @@ class TestDockerfile(unittest.TestCase):
         self.assertIn('file_analyzer.py', content, 'Dockerfile must copy file_analyzer.py')
         self.assertIn('exif_analyzer.py', content, 'Dockerfile must copy exif_analyzer.py')
 
+    def test_dockerfile_has_python_build_dependencies(self):
+        """Dockerfile must install build tools for compiling Python packages."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('build-essential', content, 'Dockerfile must install build-essential')
+        self.assertIn('python3-dev', content, 'Dockerfile must install python3-dev')
+        self.assertIn('rustc', content, 'Dockerfile must install rustc')
+        self.assertIn('cargo', content, 'Dockerfile must install cargo')
+        self.assertIn('libxml2-dev', content, 'Dockerfile must install libxml2-dev')
+        self.assertIn('libxslt1-dev', content, 'Dockerfile must install libxslt1-dev')
+
     def test_dockerfile_exposes_port_8000(self):
         """Dockerfile must expose port 8000."""
         with open(DOCKERFILE, 'r') as f:
