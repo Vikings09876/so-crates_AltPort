@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 -m venv /usr/local/lib/zircolite-venv && \
     /usr/local/lib/zircolite-venv/bin/pip install --no-cache-dir \
     -r /usr/local/lib/zircolite/requirements.txt && \
-    ln -s /usr/local/lib/zircolite-venv/bin/python3 /usr/local/bin/zircolite-venv-python && \
+    ln -s /usr/local/lib/zircolite/zircolite.py /usr/local/bin/zircolite.py && \
     rm -rf /var/lib/apt/lists/*
 
 ENV DATA_DIR=/data
