@@ -2377,6 +2377,15 @@ class TestDockerfile(unittest.TestCase):
         self.assertNotIn('pip3 install zircolite', content.lower(),
                           'Dockerfile must not use pip to install Zircolite')
 
+    def test_dockerfile_installs_zircolite_requirements(self):
+        """Dockerfile must install Zircolite Python dependencies from requirements.txt."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('requirements.txt', content,
+                      'Dockerfile must install Zircolite requirements.txt')
+        self.assertIn('pip3 install', content,
+                      'Dockerfile must use pip3 to install dependencies')
+
     def test_dockerfile_copies_socrates_files(self):
         """Dockerfile must copy all SO-CRATES source files."""
         with open(DOCKERFILE, 'r') as f:

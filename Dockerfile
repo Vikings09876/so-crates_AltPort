@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && \
     git clone --depth 1 --branch v3.7.1 \
     https://github.com/wagga40/Zircolite.git /usr/local/lib/zircolite && \
     rm -rf /usr/local/lib/zircolite/.git && \
+    pip3 install --break-system-packages -r /usr/local/lib/zircolite/requirements.txt && \
     ln -s /usr/local/lib/zircolite/zircolite.py /usr/local/bin/zircolite.py && \
     rm -rf /var/lib/apt/lists/*
 
