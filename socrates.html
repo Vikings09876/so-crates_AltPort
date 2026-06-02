@@ -3,23 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OhMyPCAP - Welcome</title>
-    <link rel="stylesheet" href="static/ohmypcap.css">
+    <title>SO-CRATES - Welcome</title>
+    <link rel="stylesheet" href="static/socrates.css">
     <script src="static/d3.min.js"></script>
     <script src="static/d3-sankey.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="modal" id="streamModal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3 id="modalTitle">TCP Stream</h3>
-                    <button class="modal-close" onclick="closeModal()">&times;</button>
-                </div>
-                <div class="stream-output" id="streamOutput">Loading...</div>
-            </div>
+    <div class="app-header" id="appHeader">
+        <div class="app-header-left">
+            <a href="#" onclick="showWelcome(); return false;" style="display: inline-flex; align-items: center; text-decoration: none; margin-right: 8px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </a>
+            <a href="#" onclick="showWelcome(); return false;" style="color: #f0f6fc; text-decoration: none; font-size: 1.2rem; font-weight: 700;">SO-CRATES</a>
+            <span id="appHeaderFilename" class="app-header-filename"></span>
+            <span id="appHeaderMeta" class="app-header-meta"></span>
         </div>
-        
+        <div class="app-header-right" id="appHeaderRight">
+            <span style="color: #8b949e; font-size: 0.9rem;">Investigate alerts and then slice and dice your metadata!</span>
+            <button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>
+        </div>
+    </div>
+    <div class="container">
         <div class="modal" id="loadingModal">
             <div class="loading-modal">
                 <div class="spinner"><div class="spinner-dot"></div></div>
@@ -50,7 +57,7 @@
                     <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
                 </div>
                 <div style="padding: 20px;">
-                    <p style="color: #c9d1d9; margin-bottom: 20px;">Are you sure you want to delete <span id="deleteFileName" style="font-weight: 600; color: #f0f6fc;"></span>?</p>
+                    <p style="color: #c9d1d9; margin-bottom: 20px; overflow-wrap: break-word;">Are you sure you want to delete <span id="deleteFileName" style="font-weight: 600; color: #f0f6fc;"></span>?</p>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button onclick="closeDeleteModal()" style="background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
                         <button onclick="confirmDelete()" style="background: #ff6b6b; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Delete</button>
@@ -66,7 +73,7 @@
                     <button class="modal-close" onclick="closeReanalyzeModal()">&times;</button>
                 </div>
                 <div style="padding: 20px;">
-                    <p style="color: #c9d1d9; margin-bottom: 20px;">This will delete the existing analysis for <span id="reanalyzeFileName" style="font-weight: 600; color: #f0f6fc;"></span> and re-run Suricata. The PCAP file will be preserved.</p>
+                    <p style="color: #c9d1d9; margin-bottom: 20px; overflow-wrap: break-word;">This will delete the existing analysis for <span id="reanalyzeFileName" style="font-weight: 600; color: #f0f6fc;"></span> and re-run the analysis pipeline. The uploaded file will be preserved.</p>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button onclick="closeReanalyzeModal()" style="background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
                         <button onclick="confirmReanalyze()" style="background: #58a6ff; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Re-analyze</button>
@@ -75,9 +82,28 @@
             </div>
         </div>
         
+        <div class="modal" id="helpModal" onclick="handleHelpBackdropClick(event)">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3 id="helpModalTitle">Help</h3>
+                    <button class="modal-close" onclick="closeHelpModal()">&times;</button>
+                </div>
+                <div id="helpModalBody">Loading...</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 15px; border-top: 1px solid #30363d; margin-top: 10px;">
+                    <label id="helpShowAgainContainer" style="color: #8b949e; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="helpShowAgain" checked style="cursor: pointer;">
+                        Show this message each time I connect
+                    </label>
+                    <button onclick="closeHelpModal()" style="background: #58a6ff; color: #0d1117; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;">Got it!</button>
+                </div>
+            </div>
+        </div>
+        
         <header id="mainHeader" style="display: none;">
             <div id="headerContent" style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;"></div>
         </header>
+
+        <div id="fileInfoContainer" style="display: none;"></div>
 
         <div id="searchBarContainer" style="display: none;">
             <div class="search-bar">
@@ -97,10 +123,10 @@
         
         <div id="inputBoxes" style="display: none; padding: 20px;"></div>
         
-        <script src="static/ohmypcap.js"></script>
+        <script src="static/socrates.js"></script>
     </div>
     <div class="footer">
-        <a href="https://github.com/dougburks/ohmypcap" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" id="footerVersionLink">OhMyPCAP</a>
+        <a href="https://github.com/dougburks/so-crates" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" id="footerVersionLink">SO-CRATES</a>
         <a href="https://securityonion.com" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">&copy; 2026 Security Onion Solutions, LLC</a>
     </div>
 </body>

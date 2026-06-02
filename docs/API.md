@@ -8,13 +8,13 @@ All endpoints return `Content-Type: application/json` unless noted. Errors retur
 
 ### `GET /`
 
-Redirects to `/ohmypcap.html`.
+Redirects to `/socrates.html`.
 
 ---
 
 ### `GET /api/version`
 
-Returns the running OhMyPCAP version.
+Returns the running SO-CRATES version.
 
 **Response:** `{"version": "3.0.0"}`
 

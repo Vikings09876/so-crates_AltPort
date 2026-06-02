@@ -1,0 +1,7 @@
+services:
+  so-crates:
+    extends:
+      file: docker-compose.yml
+      service: so-crates
+    user: "${UID}:${GID}"
+    userns_mode: keep-id

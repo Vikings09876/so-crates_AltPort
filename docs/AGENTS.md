@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file contains agent-focused guidance for maintaining OhMyPCAP.
+This file contains agent-focused guidance for maintaining SO-CRATES.
 
 ## Updating Vendored Dependencies
 
-OhMyPCAP bundles D3 and d3-sankey in `static/` so the application works offline and builds remain deterministic.
+SO-CRATES bundles D3 and d3-sankey in `static/` so the application works offline and builds remain deterministic.
 
 ### D3
 
@@ -28,17 +28,17 @@ Recommended cadence: every 6–12 months, or immediately if a security CVE is an
 
 ## Backend Architecture
 
-OhMyPCAP's backend is split into domain modules. Do not add new logic directly to `ohmypcap.py` — place it in the appropriate module:
+SO-CRATES's backend is split into domain modules. Do not add new logic directly to `socrates.py` — place it in the appropriate module:
 
 | Module | Add here if... |
 |---|---|
 | `validators.py` | Pure input validation (no HTTP, no I/O). IP/port checks, filename sanitization, URL safety, PCAP magic bytes, ZIP slip prevention. |
-| `suricata.py` | Anything related to Suricata lifecycle: config setup, rule downloads, spawning subprocesses, processing locks, file extraction. |
-| `yara_scanner.py` | YARA scanning: executable checks, rules download/setup, scanning extracted files, parsing output. |
+| `suricata_analyzer.py` | Anything related to Suricata lifecycle: config setup, rule downloads, spawning subprocesses, processing locks, file extraction. |
+| `yara_analyzer.py` | YARA scanning: executable checks, rules download/setup, scanning extracted files, parsing output. |
 | `db.py` | SQLite schema changes, new query functions, index optimization, bulk loading logic. |
 | `models.py` | New Suricata event field extraction helpers (parsing JSON fields into typed values). |
 | `config.py` | Application-wide constants: size limits, timeouts, thresholds. Adjust here for different deployments. |
-| `ohmypcap.py` | Only HTTP handler methods, request/response formatting, and thin orchestration that calls other modules. |
+| `socrates.py` | Only HTTP handler methods, request/response formatting, and thin orchestration that calls other modules. |
 
 ### Handler Conventions
 
@@ -52,13 +52,13 @@ The frontend is split into three files under `static/`:
 
 | File | Content |
 |---|---|
-| `ohmypcap.html` | HTML shell (no inline CSS/JS) |
-| `static/ohmypcap.css` | All styles |
-| `static/ohmypcap.js` | All JavaScript |
+| `socrates.html` | HTML shell (no inline CSS/JS) |
+| `static/socrates.css` | All styles |
+| `static/socrates.js` | All JavaScript |
 
-`ohmypcap.html` references them via `<link rel="stylesheet" href="static/ohmypcap.css">` and `<script src="static/ohmypcap.js"></script>`.
+`socrates.html` references them via `<link rel="stylesheet" href="static/socrates.css">` and `<script src="static/socrates.js"></script>`.
 
-When updating styles or frontend logic, edit the appropriate split file. Keep `ohmypcap.html` free of inline `<style>` and `<script>` blocks.
+When updating styles or frontend logic, edit the appropriate split file. Keep `socrates.html` free of inline `<style>` and `<script>` blocks.
 
 ## README Maintenance
 

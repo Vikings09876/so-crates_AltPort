@@ -2,10 +2,10 @@
 
 ## Overview
 
-OhMyPCAP is a two-component application:
+SO-CRATES is a two-component application:
 
 ```
-Browser ──HTTP──▶ ohmypcap.py (Python HTTP server, port 8000)
+Browser ──HTTP──▶ socrates.py (Python HTTP server, port 8000)
                       │
                       ├──▶ Suricata (subprocess, analyzes PCAPs → eve.json)
                       ├──▶ YARA (scans non-PCAP files → yara_matches.json)
@@ -14,22 +14,22 @@ Browser ──HTTP──▶ ohmypcap.py (Python HTTP server, port 8000)
                        └──▶ tshark (extracts ASCII transcripts)
 ```
 
-All state is file-based under `~/ohmypcap-data/`. No database server, no external services.
+All state is file-based under `~/socrates-data/`. No database server, no external services.
 
 ## Server
 
-A stdlib-only Python HTTP server (`http.server.SimpleHTTPRequestHandler`). Handles static file serving for `ohmypcap.html` and JSON API endpoints.
+A stdlib-only Python HTTP server (`http.server.SimpleHTTPRequestHandler`). Handles static file serving for `socrates.html` and JSON API endpoints.
 
 ### Modules
 
 | File | Responsibility |
 |---|---|
-| `ohmypcap.py` | HTTP request dispatch, stream carving, ZIP extraction, upload/load-url orchestration |
+| `socrates.py` | HTTP request dispatch, stream carving, ZIP extraction, upload/load-url orchestration |
 | `db.py` | SQLite schema, bulk loading, FTS5 full-text search, query functions |
 | `models.py` | Suricata event field extraction helpers (IP, port, protocol) |
 | `validators.py` | Input validation: IP, port, filename, path safety, URL safety, ZIP slip, PCAP magic bytes |
-| `suricata.py` | Suricata orchestration: executable checks, rules download/config, background spawn |
-| `yara_scanner.py` | YARA scanning: executable checks, rules download/setup, scanning extracted files, parsing output |
+| `suricata_analyzer.py` | Suricata orchestration: executable checks, rules download/config, background spawn |
+| `yara_analyzer.py` | YARA scanning: executable checks, rules download/setup, scanning extracted files, parsing output |
 | `config.py` | Centralized application constants: size limits, timeouts, thresholds |
 
 ### Request Flow
@@ -43,7 +43,7 @@ A stdlib-only Python HTTP server (`http.server.SimpleHTTPRequestHandler`). Handl
 ### Data Storage
 
 ```
-~/ohmypcap-data/
+~/socrates-data/
   suricata/
     suricata.yaml          # Copied from /etc/suricata/, rule path rewritten
     rules/
@@ -114,11 +114,11 @@ Three files under `static/`:
 
 | File | Content |
 |---|---|
-| `ohmypcap.html` | HTML shell |
-| `static/ohmypcap.css` | All styles |
-| `static/ohmypcap.js` | All JavaScript |
+| `socrates.html` | HTML shell |
+| `static/socrates.css` | All styles |
+| `static/socrates.js` | All JavaScript |
 
-`ohmypcap.html` loads the CSS and JS via `<link>` and `<script src>` tags. D3 and d3-sankey are vendored in `static/` for offline use.
+`socrates.html` loads the CSS and JS via `<link>` and `<script src>` tags. D3 and d3-sankey are vendored in `static/` for offline use.
 
 ### UI States
 

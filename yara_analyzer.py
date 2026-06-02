@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YARA scanning integration for OhMyPCAP.
+"""YARA scanning integration for SO-CRATES.
 
 YARA is optional. If installed, extracted files are scanned after Suricata
 finishes. Rules are baked into Docker images; non-Docker deployments download
@@ -35,14 +35,14 @@ def setup_yara_rules(data_dir=None):
     """Ensure YARA Forge rules are available.
 
     Priority:
-    1. ~/ohmypcap-data/yara-rules/yara-rules-full.yar (already downloaded)
+    1. ~/socrates-data/yara-rules/yara-rules-full.yar (already downloaded)
     2. Baked-in rules in /usr/share/yara-rules (Docker)
     3. Download latest YARA Forge release if internet is available
 
     Returns the rules file path or None if no rules are available.
     """
     if data_dir is None:
-        data_dir = os.path.expanduser('~/ohmypcap-data')
+        data_dir = os.path.expanduser('~/socrates-data')
     rules_file = os.path.join(data_dir, YARA_RULES_SUBDIR, YARA_FORGE_FILENAME)
 
     # Already downloaded/cached
@@ -314,7 +314,7 @@ def run_yara_pipeline(dir_path, data_dir=None):
         return False
 
     if data_dir is None:
-        data_dir = os.path.expanduser('~/ohmypcap-data')
+        data_dir = os.path.expanduser('~/socrates-data')
     rules_file = os.path.join(data_dir, YARA_RULES_SUBDIR, YARA_FORGE_FILENAME)
     if not os.path.isfile(rules_file):
         print(f'YARA Forge rules file not found: {rules_file}')

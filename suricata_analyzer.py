@@ -8,7 +8,7 @@ import threading
 import config
 from db import create_sqlite_db
 from validators import is_host_reachable
-from yara_scanner import run_yara_pipeline
+from yara_analyzer import run_yara_pipeline
 
 REQUIRED_EXECUTABLES = ['tcpdump', 'tshark', 'suricata', 'suricata-update']
 
@@ -28,7 +28,7 @@ def has_internet_access():
 
 def setup_suricata_config(data_dir=None):
     if data_dir is None:
-        data_dir = os.path.expanduser('~/ohmypcap-data')
+        data_dir = os.path.expanduser('~/socrates-data')
     suricata_dir = os.path.join(data_dir, 'suricata')
     suricata_rules_dir = os.path.join(suricata_dir, 'rules')
 
@@ -118,7 +118,7 @@ def spawn_suricata(dir_path, pcap_path, suricata_config_path=None, data_dir=None
     Returns False if analysis is already in progress (lock exists).
     """
     if data_dir is None:
-        data_dir = os.path.expanduser('~/ohmypcap-data')
+        data_dir = os.path.expanduser('~/socrates-data')
     if suricata_config_path is None:
         suricata_config_path = os.path.join(data_dir, 'suricata', 'suricata.yaml')
 

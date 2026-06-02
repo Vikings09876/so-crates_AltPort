@@ -1,4 +1,4 @@
-"""Application-wide configuration constants for OhMyPCAP.
+"""Application-wide configuration constants for SO-CRATES.
 
 All tunable numeric values (size limits, timeouts, thresholds) are centralized
 here so they can be adjusted for different deployments without scattering edits
@@ -26,6 +26,12 @@ YARA_CLONE_TIMEOUT = 120
 YARA_SCAN_TIMEOUT = 300
 SURICATA_UPDATE_TIMEOUT = 60
 SURICATA_RUN_TIMEOUT = 300                 # 5 minutes max for a single PCAP
+SIGMA_RUN_TIMEOUT = 300                    # 5 minutes max for Zircolite log analysis
+
+# Sigma / Zircolite
+ZIRCOLITE_VERSION = '3.7.1'
+MAX_LOG_SIZE = 500 * 1024 * 1024           # 500 MB
+SIGMA_RULES_SUBDIR = 'sigma-rules'
 
 # Search / analysis limits
 MAX_SEARCH_TERM_LENGTH = 200               # characters

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ExifTool-based metadata extraction for OhMyPCAP.
+"""ExifTool-based metadata extraction for SO-CRATES.
 
 Provides rich format-specific metadata for PE executables, PDFs, images,
 and Office documents. Runs selectively based on MIME type and only for

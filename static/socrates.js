@@ -3,8 +3,13 @@
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        function escapeJsString(str) {
+            if (str == null) return '';
+            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
         function sortEventTypes(types) {
-            const order = { alert: 0, filealerts: 1 };
+            const order = { alert: 0, sigmaalert: 1, filealerts: 2, log: 3 };
             return [...types].sort((a, b) => {
                 const ai = order[a] ?? 99;
                 const bi = order[b] ?? 99;
@@ -23,6 +28,8 @@
                 flow: '#bc8cff',
                 ftp: '#00bcd4',
                 http: '#ffa726',
+                log: '#b0b0b0',
+                sigmaalert: '#ff6b6b',
                 stats: '#9e9e9e',
                 tls: '#58a6ff',
                 connection: '#8b949e',
@@ -49,6 +56,52 @@
             SEARCH_DEBOUNCE_MS: 300,
             SANKEY_BOTTOM_MARGIN: 60,
         };
+        const DEFAULT_SAMPLE_URL = 'https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip';
+        const WELCOME_HELP_CONTENT = `
+            <p style="color: #8b949e; font-size: 0.95rem;">
+                💡 Maximum file size is 1000MB.
+            </p>
+            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
+                💡 Processing may take a minute or two depending on the size of the file.
+            </p>
+            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
+                💡 File types supported:
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.9rem; color: #c9d1d9;">
+                <thead>
+                    <tr style="border-bottom: 1px solid #30363d;">
+                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 18%;">File Type</th>
+                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 40%;">File Extensions</th>
+                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 18%;">Engine</th>
+                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 24%;">Ruleset</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #21262d; background: rgba(255, 107, 107, 0.05);">
+                        <td style="padding: 8px 12px;"><strong style="color: #ff6b6b;">Packet Capture</strong></td>
+                        <td style="padding: 8px 12px;">.pcap, .pcapng, .cap, .trace</td>
+                        <td style="padding: 8px 12px;">Suricata</td>
+                        <td style="padding: 8px 12px;">Emerging Threats Open</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #21262d; background: rgba(255, 167, 38, 0.05);">
+                        <td style="padding: 8px 12px;"><strong style="color: #ffa726;">Logs</strong></td>
+                        <td style="padding: 8px 12px;">.evtx, .json, .jsonl, .csv, .xml, .log</td>
+                        <td style="padding: 8px 12px;">Zircolite</td>
+                        <td style="padding: 8px 12px;">SigmaHQ</td>
+                    </tr>
+                    <tr style="background: rgba(255, 202, 40, 0.05);">
+                        <td style="padding: 8px 12px;"><strong style="color: #ffca28;">Binary / Other</strong></td>
+                        <td style="padding: 8px 12px;">.exe, .dll, .elf, .pdf, etc.</td>
+                        <td style="padding: 8px 12px;">YARA</td>
+                        <td style="padding: 8px 12px;">YARA Forge</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="color: #8b949e; font-size: 0.85rem; margin-top: 8px; margin-bottom: 0;">
+                Any of the above file types can be uploaded inside a .zip archive to automatically extract and analyze the first supported file found.
+            </p>
+        `;
+        let lastSampleUrl = DEFAULT_SAMPLE_URL;
         function yaraTagBadgeHtml(tag) {
             const t = (tag || '').toUpperCase();
             let bg, text;
@@ -119,7 +172,34 @@
                 updateSankeyDiagram();
                 return;
             }
-            
+
+            if (isLogAnalysisMode && eventType === 'log') {
+                const events = tabDataCache['log'] || [];
+                const filtered = getFilteredLogEvents(events);
+                if (sectionEl) buildLogSectionContent(sectionId, filtered);
+                if (advancedMode) buildLogAggregations(filtered, sectionId);
+                updateFilterBarVisibility();
+                return;
+            }
+
+            if (isLogAnalysisMode && eventType === 'sigmaalert') {
+                let alerts = tabDataCache['sigmaalert'] || [];
+                if (!tabDataCache['sigmaalert']) {
+                    try {
+                        const resp = await fetch(`/api/sigma-alerts?md5=${currentMd5}&limit=5000${qParam}&t=${Date.now()}`);
+                        alerts = await resp.json();
+                        tabDataCache['sigmaalert'] = alerts;
+                    } catch(e) {
+                        console.error('Failed to load sigma alerts:', e);
+                    }
+                }
+                const filtered = getFilteredSigmaAlerts(alerts);
+                if (sectionEl) buildSigmaAlertSectionContent(sectionId, filtered);
+                if (advancedMode) buildSigmaAlertAggregations(filtered, sectionId);
+                updateFilterBarVisibility();
+                return;
+            }
+
             if (tabDataCache[eventType]) {
                 sections[eventType] = tabDataCache[eventType];
                 const filtered = getFilteredEvents(sectionId, tabDataCache[eventType], eventType);
@@ -262,7 +342,7 @@
                 if (data.packets && data.packets.length > 0) {
                     let html = '<div class="packet-controls"><button class="packet-control-btn" onclick="expandAllPackets(this.parentNode.parentNode)">Expand All</button><button class="packet-control-btn" onclick="collapseAllPackets(this.parentNode.parentNode)">Collapse All</button></div>';
                     
-                    data.packets.forEach((pkt, i) => {
+                    data.packets.forEach((pkt) => {
                         const isExpanded = false;
                         const arrow = isExpanded ? '▾' : '▸';
                         const dirParts = pkt.header.split(' > ');
@@ -350,20 +430,24 @@
             let html = `<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 0.85rem; min-width: 0;">`;
             html += htmlRowText('Timestamp', ts);
             html += htmlRow('Event Type', `<span class="badge badge-info">${escapeHtml(e.event_type || '')}</span>`);
-            html += htmlRowText('Protocol', e.proto || '');
-            html += htmlRowText('Flow ID', e.flow_id || '');
-            html += htmlRowText('PCAP Count', e.pcap_cnt || '');
-            html += htmlSection('Connection', COLORS.EVENT.connection);
-            html += htmlRowText('Source IP', e.src_ip || '', 'mono');
-            html += htmlRowText('Source Port', e.src_port || '', 'mono');
-            html += htmlRowText('Dest IP', e.dest_ip || '', 'mono');
-            html += htmlRowText('Dest Port', e.dest_port || '', 'mono');
+            if (e.proto) html += htmlRowText('Protocol', e.proto);
+            if (e.flow_id) html += htmlRowText('Flow ID', e.flow_id);
+            if (e.pcap_cnt) html += htmlRowText('PCAP Count', e.pcap_cnt);
+            if (e.src_ip || e.src_port || e.dest_ip || e.dest_port) {
+                html += htmlSection('Connection', COLORS.EVENT.connection);
+                if (e.src_ip) html += htmlRowText('Source IP', e.src_ip, 'mono');
+                if (e.src_port) html += htmlRowText('Source Port', e.src_port, 'mono');
+                if (e.dest_ip) html += htmlRowText('Dest IP', e.dest_ip, 'mono');
+                if (e.dest_port) html += htmlRowText('Dest Port', e.dest_port, 'mono');
+            }
             return html;
         }
 
         function _formatEventPayload(e) {
             if (!e.src_ip || !e.src_port || !e.dest_ip || !e.dest_port) return '';
-            return `<div id="ascii-${e.src_ip}-${e.src_port}-${e.dest_ip}-${e.dest_port}" style="margin-top: 15px;"><div style="color: #8b949e; font-size: 0.85rem; border-bottom: 1px solid #30363d; padding-bottom: 5px; margin-bottom: 5px;">Payload</div><div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;"><div class="view-tabs"><button class="view-tab active" onclick="switchStreamView('ascii','${e.src_ip}',${e.src_port},'${e.dest_ip}',${e.dest_port},this)">ASCII Transcript</button><button class="view-tab" onclick="switchStreamView('hexdump','${e.src_ip}',${e.src_port},'${e.dest_ip}',${e.dest_port},this)">Hexdump</button></div><button class="stream-btn" onclick="downloadPcap('${e.src_ip}','${e.src_port}','${e.dest_ip}','${e.dest_port}')" style="margin-left: 12px;">Download PCAP</button></div><div class="stream-view-container" style="background: #0d1117; padding: 15px; border-radius: 8px; font-size: 0.8rem; margin: 0;"><div class="ascii-transcript" style="white-space: pre-wrap; overflow-wrap: break-word;"></div><div class="hexdump-content" style="display: none;"></div></div></div>`;
+            const srcIpJs = escapeJsString(e.src_ip);
+            const dstIpJs = escapeJsString(e.dest_ip);
+            return `<div id="ascii-${e.src_ip}-${e.src_port}-${e.dest_ip}-${e.dest_port}" style="margin-top: 15px;"><div style="color: #8b949e; font-size: 0.85rem; border-bottom: 1px solid #30363d; padding-bottom: 5px; margin-bottom: 5px;">Payload</div><div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;"><div class="view-tabs"><button class="view-tab active" onclick="switchStreamView('ascii','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">ASCII Transcript</button><button class="view-tab" onclick="switchStreamView('hexdump','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">Hexdump</button></div><button class="stream-btn" onclick="downloadPcap('${srcIpJs}','${e.src_port}','${dstIpJs}','${e.dest_port}')" style="margin-left: 12px;">Download PCAP</button></div><div class="stream-view-container" style="background: #0d1117; padding: 15px; border-radius: 8px; font-size: 0.8rem; margin: 0;"><div class="ascii-transcript" style="white-space: pre-wrap; overflow-wrap: break-word;"></div><div class="hexdump-content" style="display: none;"></div></div></div>`;
         }
 
         function renderAlertDetails(e) {
@@ -443,6 +527,9 @@
             const fa = e.filealerts || {};
             let html = htmlRow('Rule', `<span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(fa.rule_name || '')}</span>`);
             html += htmlRowText('SHA256', fa.sha256, 'mono');
+            if (fa.author) {
+                html += htmlRowText('Author', fa.author);
+            }
             if (fa.tags && fa.tags.length > 0) {
                 html += htmlRow('Tags', fa.tags.map(t => yaraTagBadgeHtml(t)).join(''));
             }
@@ -493,18 +580,6 @@
             return html;
         }
 
-        function renderStatsDetails(e) {
-            let html = htmlSection('Stats Details', COLORS.EVENT.stats);
-            if (e.stats?.capture) {
-                html += htmlRowText('Kernel Packets', (e.stats.capture.kernel_packets || 0).toLocaleString());
-                html += htmlRowText('Kernel Drops', (e.stats.capture.kernel_drops || 0).toLocaleString());
-            }
-            if (e.stats?.detect) {
-                html += htmlRowText('Alerts', (e.stats.detect.alert || 0).toLocaleString());
-            }
-            return html;
-        }
-
         const EVENT_RENDERERS = {
             alert: renderAlertDetails,
             dns: renderDnsDetails,
@@ -515,7 +590,6 @@
             anomaly: renderAnomalyDetails,
             filealerts: renderFileAlertDetails,
             fileinfo: renderFileInfoDetails,
-            stats: renderStatsDetails,
         };
 
         function formatEvent(e) {
@@ -606,19 +680,6 @@
             }
         });
         
-        function renderTable(containerId, headers, rows) {
-            let html = '<div class="section-content"><table><thead><tr>';
-            headers.forEach(h => html += `<th>${h}</th>`);
-            html += '</tr></thead><tbody>';
-            rows.forEach(r => html += r);
-            html += '</tbody></table></div>';
-            document.getElementById(containerId).innerHTML = html;
-        }
-        
-        function closeModal() {
-            document.getElementById('streamModal').classList.remove('active');
-        }
-        
         function showLoading(message) {
             document.getElementById('loadingText').textContent = message || 'Loading...';
             document.getElementById('loadingModal').classList.add('active');
@@ -629,7 +690,13 @@
         }
 
         function clearAnalysisContainers() {
-            document.getElementById('statsGrid').innerHTML = '';
+            isLogAnalysisMode = false;
+            document.body.classList.remove('file-analysis');
+            const statsGrid = document.getElementById('statsGrid');
+            if (statsGrid) {
+                statsGrid.innerHTML = '';
+                statsGrid.style.display = '';
+            }
             document.getElementById('sankeyPanel').style.display = 'none';
             document.getElementById('sankeyPanel').innerHTML = '';
             document.getElementById('aggregations').innerHTML = '';
@@ -637,7 +704,11 @@
             document.getElementById('filterBarContainer').innerHTML = '';
             document.getElementById('filterBarContainer').style.display = 'none';
             document.querySelectorAll('.file-info-card').forEach(c => c.remove());
-            document.querySelectorAll('.file-alerts-grid').forEach(g => g.remove());
+            const fileInfoContainer = document.getElementById('fileInfoContainer');
+            if (fileInfoContainer) {
+                fileInfoContainer.innerHTML = '';
+                fileInfoContainer.style.display = 'none';
+            }
         }
 
         function showWelcomeUI() {
@@ -645,6 +716,68 @@
             document.getElementById('dataPanel').style.display = 'none';
             document.getElementById('searchBarContainer').style.display = 'none';
             document.getElementById('inputBoxes').style.display = 'block';
+            document.getElementById('appHeaderFilename').innerHTML = '';
+            document.getElementById('appHeaderMeta').innerHTML = '<span style="color: #8b949e; font-size: 0.9rem;">Security Onion Containerized Rapid Analysis of Threats, Evil, and Sus</span>';
+            document.getElementById('appHeaderRight').innerHTML = '<button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>';
+        }
+
+        function shouldShowHelpModal() {
+            if (localStorage.getItem('socrates_hideHelp') === 'true') return false;
+            if (sessionStorage.getItem('socrates_helpShown') === 'true') return false;
+            return true;
+        }
+
+        function showHelpModal() {
+            const isWelcome = document.getElementById('inputBoxes').style.display !== 'none';
+            const modalTitle = document.getElementById('helpModalTitle');
+            const modalBody = document.getElementById('helpModalBody');
+            const checkboxContainer = document.getElementById('helpShowAgainContainer');
+            const checkbox = document.getElementById('helpShowAgain');
+
+            const helpModal = document.getElementById('helpModal');
+            if (isWelcome) {
+                modalTitle.textContent = 'Welcome to SO-CRATES!';
+                modalBody.innerHTML = WELCOME_HELP_CONTENT;
+                checkboxContainer.style.display = 'flex';
+                checkbox.checked = localStorage.getItem('socrates_hideHelp') !== 'true';
+                helpModal.classList.add('wide');
+            } else {
+                modalTitle.textContent = 'Analysis Help';
+                const isLogFile = currentFileName && /\.(evtx|json|jsonl|csv|xml|log)$/i.test(currentFileName);
+                const isFileOnly = document.body.classList.contains('file-analysis');
+                let helpText;
+                if (isLogFile) {
+                    helpText = '<span style="color: #58a6ff;">💡</span> Investigate Sigma Alerts and then review Log Events. Filter using the search bar or aggregation tables.';
+                } else if (isFileOnly) {
+                    helpText = '<span style="color: #58a6ff;">💡</span> Review the FILE INFO section for metadata and then the data table at the bottom for any matches found by the YARA rules.';
+                } else {
+                    helpText = '<span style="color: #58a6ff;">💡</span> Start by reviewing all alerts and then you can change to one of the other data types like DNS, HTTP, or TLS. Filter using the search bar, sankey diagram, or aggregation tables. When you find something interesting, you can drill into the row in the data table at the bottom. This will allow you to see the ASCII transcript and hexdump and optionally download the PCAP file for that stream.';
+                }
+                modalBody.innerHTML = '<div style="color: #8b949e; font-size: 0.95rem; line-height: 1.6;">' + helpText + '</div>';
+                checkboxContainer.style.display = 'none';
+                helpModal.classList.remove('wide');
+            }
+
+            helpModal.classList.add('active');
+        }
+
+        function closeHelpModal() {
+            document.getElementById('helpModal').classList.remove('active');
+            const isWelcome = document.getElementById('inputBoxes').style.display !== 'none';
+            if (isWelcome) {
+                sessionStorage.setItem('socrates_helpShown', 'true');
+                if (!document.getElementById('helpShowAgain').checked) {
+                    localStorage.setItem('socrates_hideHelp', 'true');
+                } else {
+                    localStorage.removeItem('socrates_hideHelp');
+                }
+            }
+        }
+
+        function handleHelpBackdropClick(event) {
+            if (event.target === document.getElementById('helpModal')) {
+                closeHelpModal();
+            }
         }
 
         function showAnalysisUI() {
@@ -655,12 +788,15 @@
         }
         
         async function showWelcome() {
-            document.title = 'OhMyPCAP - Welcome';
+            document.title = 'SO-CRATES - Welcome';
             if (window.location.search.includes('file=') || window.location.search.includes('pcap=')) {
                 history.replaceState({}, '', window.location.pathname);
             }
             clearAnalysisContainers();
             showWelcomeUI();
+            if (shouldShowHelpModal()) {
+                showHelpModal();
+            }
             
             // Load previous analyses
             let previousHtml = '';
@@ -685,31 +821,32 @@
             
             document.getElementById('inputBoxes').innerHTML = `
                 <div style="max-width: 900px; margin: 0 auto;">
-                    <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                        <div style="background: #161b22; padding: 25px 40px; border-radius: 8px; border: 1px solid #30363d; text-align: center; flex: 1;">
-                            <div style="font-size: 3rem; margin-bottom: 15px;">🔍</div>
-                            <h2 style="color: #f0f6fc; font-size: 1.5rem; margin-bottom: 10px;">Welcome to OhMyPCAP</h2>
-                            <p style="color: #8b949e; font-size: 0.95rem;">
-                                Analyze files from the web or your local collection. View alerts and then slice and dice your network metadata!
-                            </p>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                        <div style="background: #161b22; padding: 25px 40px; border-radius: 8px; border: 1px solid #30363d; flex: 1;">
-                            <p style="color: #8b949e; font-size: 0.95rem;">
-                                💡 Maximum file size is 1000MB. Processing may take a minute or two depending on the size of the file.
-                            </p>
-                            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
-                                💡 Upload PCAP files (.pcap, .pcapng, .cap, .trace) for full network traffic analysis, or any file for YARA-only scanning. ZIP files are also supported.
-                            </p>
-                            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
-                                💡 If you don't already have a file in mind, just click the Go button below and it will automatically download a pcap from <a href="https://www.malware-traffic-analysis.net" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">malware-traffic-analysis.net</a>. There are lots of other fun pcap files to be found at that site!
-                            </p>
-                        </div>
-                    </div>
                     <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px;">
                         <div style="background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; width: 100%; box-sizing: border-box;">
-                            <div style="color: #8b949e; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">⬇️ Import file from URL or local filesystem</div>
+                            <div style="color: #8b949e; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">⬇️ Select a sample file, import a file from URL, or import a file from your local system</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 15px;">
+                                <div class="sample-card sample-card-red" onclick="loadSampleUrl('https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip')">
+                                    <span class="sample-label sample-red">Sample pcap file</span>
+                                </div>
+                                <div class="sample-card sample-card-orange" onclick="loadSampleUrl('https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES/raw/refs/heads/master/Defense%20Evasion/apt10_jjs_sideloading_prochollowing_persist_as_service_sysmon_1_7_8_13.evtx')">
+                                    <span class="sample-label sample-orange">Sample log file</span>
+                                </div>
+                                <div class="sample-card sample-card-yellow" onclick="loadSampleUrl('https://secure.eicar.org/eicar.com')">
+                                    <span class="sample-label sample-yellow">Sample binary file</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 15px;">
+                                <div style="flex: 1; text-align: center;">
+                                    <a href="https://www.malware-traffic-analysis.net/" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More pcap samples ↗</a>
+                                </div>
+                                <div style="flex: 1; text-align: center;">
+                                    <a href="https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More log samples ↗</a>
+                                </div>
+                                <div style="flex: 1; text-align: center;">
+                                    <a href="https://www.eicar.org/" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More binary samples ↗</a>
+                                </div>
+                            </div>
+                            <div style="text-align: center; color: #8b949e; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-bottom: 15px;">— OR —</div>
                             <div style="display: flex; gap: 8px; margin-bottom: 15px;">
                                 <input type="text" id="pcapUrl" value="https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip" onfocus="this.value=''" onkeydown="if(event.key==='Enter')loadFromUrl()" style="background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 8px 12px; border-radius: 4px; font-size: 0.95rem; flex: 1;">
                                 <button onclick="loadFromUrl()" style="background: #58a6ff; color: #0d1117; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.95rem; border: none;">Go</button>
@@ -729,31 +866,31 @@
                         <div id="previousAnalysesList">${previousHtml}</div>
                     </div>
                     <div style="background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; margin-top: 20px;">
-                        <div style="color: #8b949e; font-size: 0.9rem; margin-bottom: 10px; text-align: center;">OhMyPCAP provides basic analysis. Need more advanced functionality?<br>Take a look at the <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion</a> platform available in a free Community Edition!<br>If you need enterprise features, consider upgrading to <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion Pro</a>!</div>
+                        <div style="color: #8b949e; font-size: 0.9rem; margin-bottom: 10px; text-align: center;">SO-CRATES provides basic analysis. Need more advanced functionality?<br>Take a look at the full <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion</a> platform available in a free Community Edition!<br>If you need enterprise features, consider upgrading to <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion Pro</a>!</div>
                         <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                             <thead>
                                 <tr style="border-bottom: 1px solid #30363d;">
                                     <th style="text-align: left; padding: 10px; color: #8b949e; font-size: 0.8rem; text-transform: none; cursor: default;">Feature</th>
-                                    <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">OhMyPCAP</th>
+                                    <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">SO-CRATES</th>
                                     <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion</th>
                                     <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion Pro</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Import PCAP File</td>
+                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Import Files</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                 </tr>
                                 <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Review NIDS Alerts</td>
+                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Investigate Alerts</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                 </tr>
                                 <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Slice and Dice Network Metadata</td>
+                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Slice and Dice Metadata</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
@@ -831,7 +968,7 @@
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Federal Information Processing Standards (FIPS)</td>
+                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">FIPS</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
                                     <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
@@ -881,17 +1018,16 @@
                 </div>
             `;
             
-            document.getElementById('pcapUrl').value = 'https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip';
+            document.getElementById('pcapUrl').value = lastSampleUrl;
         }
-        
-        document.getElementById('streamModal').addEventListener('click', function(e) {
-            if (e.target === this) closeModal();
-        });
         
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
-                closeModal();
-                document.querySelectorAll('.modal.active').forEach(m => m.remove());
+                closeHelpModal();
+            }
+            if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                showHelpModal();
             }
         });
         
@@ -904,12 +1040,37 @@
         function toggleAggregations() {
             advancedMode = !advancedMode;
             const visibleSection = document.querySelector('.section:not(.section-hidden):not(.agg-section)');
-            if (!visibleSection) return;
+            if (!visibleSection) {
+                // Binary analysis mode: no tab sections, rebuild aggregations directly
+                const fileAlerts = allEvents.filter(e => e.event_type === 'filealerts');
+                const filtered = fileAlerts.filter(e => {
+                    for (const [col, val] of Object.entries(currentFilters)) {
+                        if (extractValue(e, col, -1) !== val) return false;
+                    }
+                    return true;
+                });
+                if (advancedMode) {
+                    hiddenAggregations = new Set();
+                    buildBinaryAggregations(filtered);
+                } else {
+                    const aggContainer = document.getElementById('aggregations');
+                    if (aggContainer) aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                }
+                return;
+            }
             const eventType = visibleSection.id.replace('section-', '');
             if (advancedMode) {
                 hiddenAggregations = new Set();
                 if (eventType === 'all') {
                     buildAggregationsSectionAll();
+                } else if (isLogAnalysisMode && eventType === 'log') {
+                    const events = tabDataCache['log'] || [];
+                    const filtered = getFilteredLogEvents(events);
+                    buildLogAggregations(filtered, visibleSection.id);
+                } else if (isLogAnalysisMode && eventType === 'sigmaalert') {
+                    const alerts = tabDataCache['sigmaalert'] || [];
+                    const filtered = getFilteredSigmaAlerts(alerts);
+                    buildSigmaAlertAggregations(filtered, visibleSection.id);
                 } else {
                     const events = tabDataCache[eventType] || sections[eventType] || [];
                     const filtered = getFilteredEvents(visibleSection.id, events, eventType);
@@ -932,6 +1093,8 @@
             flow: 'Flows',
             ftp: 'FTP',
             http: 'HTTP',
+            log: 'Log Events',
+            sigmaalert: 'Sigma Alerts',
             stats: 'Stats',
             tls: 'TLS'
         };
@@ -1176,6 +1339,16 @@
                     return ['Time', 'Protocol', 'Source IP', 'Source Port', 'Dest IP', 'Dest Port', 'Filename'];
                 case 'filealerts':
                     return ['Time', 'Protocol', 'Source IP', 'Source Port', 'Dest IP', 'Dest Port', 'Rule Name', 'Tags'];
+                case 'log': {
+                    const logEvents = tabDataCache['log'] || [];
+                    const cols = discoverLogColumns(logEvents);
+                    const labels = ['Time'];
+                    cols.forEach(c => labels.push(c.label));
+                    labels.push('Detail');
+                    return labels;
+                }
+                case 'sigmaalert':
+                    return ['Time', 'Severity', 'Rule', 'MITRE Technique', 'Log Source'];
                 default:
                     return ['Time', 'Protocol', 'Source IP', 'Source Port', 'Dest IP', 'Dest Port'];
             }
@@ -1215,7 +1388,6 @@
                     const url = e.http?.url || '';
                     const status = e.http?.status || '';
                     const ua = (e.http?.http_user_agent || '').slice(0, CONFIG.TLS_ISSUER_MAX_LENGTH);
-                    const streamId = `${srcIp},${srcPort},${dstIp},${dstPort}`;
                     const statusBadge = status && parseInt(status) < 400 ? 'badge-success' : status && parseInt(status) < 500 ? 'badge-warning' : 'badge-danger';
                     colSpan = 11;
                     row = `<tr onclick="toggleRow(this)"><td class="timestamp">${escapeHtml(ts)}</td><td><span class="badge badge-info">${escapeHtml(proto)}</span></td><td class="mono">${escapeHtml(srcIp)}</td><td class="mono">${escapeHtml(String(srcPort))}</td><td class="mono">${escapeHtml(dstIp)}</td><td class="mono">${escapeHtml(String(dstPort))}</td><td><span class="badge badge-info">${escapeHtml(method)}</span></td><td class="mono">${escapeHtml(host)}</td><td class="mono">${escapeHtml(url)}</td><td>${escapeHtml(ua)}</td><td><span class="badge ${statusBadge}">${escapeHtml(String(status))}</span></td></tr>`;
@@ -1261,10 +1433,9 @@
             return row + `<tr class="detail-row"><td colspan="${colSpan}"><div class="detail-content">${formatted}</div></td></tr>`;
         }
         
-        function buildFileInfoCard() {
-            document.querySelectorAll('.file-info-card').forEach(c => c.remove());
-            const fileinfoEvent = allEvents.find(e => e.event_type === 'fileinfo');
-            if (!fileinfoEvent || !fileinfoEvent.fileinfo) return;
+        function buildFileInfoHtml(events) {
+            const fileinfoEvent = events.find(e => e.event_type === 'fileinfo');
+            if (!fileinfoEvent || !fileinfoEvent.fileinfo) return '';
 
             const fi = fileinfoEvent.fileinfo;
             const meta = fi.metadata || {};
@@ -1279,106 +1450,702 @@
                 ? exifEntries.map(([k, v]) => `<span class="label">${escapeHtml(k)}</span><span class="value" style="word-break: break-all;">${escapeHtml(v)}</span>`).join('')
                 : '';
 
-            const card = document.createElement('div');
-            card.className = 'file-info-card';
-            card.innerHTML = `
-                <h3>📄 File Info</h3>
-                <div class="file-info-grid">
-                    <span class="label">Filename</span><span class="value">${escapeHtml(fi.filename || '')}</span>
-                    <span class="label">Size</span><span class="value">${escapeHtml(String((fi.size || 0).toLocaleString()))} bytes</span>
-                    <span class="label">MD5</span><span class="value">${escapeHtml(fi.md5 || '')}</span>
-                    <span class="label">SHA1</span><span class="value">${escapeHtml(fi.sha1 || '')}</span>
-                    <span class="label">SHA256</span><span class="value">${escapeHtml(fi.sha256 || '')}</span>
-                    <span class="label">Magic</span><span class="value">${escapeHtml(fi.magic || '')}</span>
-                    ${meta.mime_type ? `<span class="label">MIME Type</span><span class="value">${escapeHtml(meta.mime_type)}</span>` : ''}
-                    ${meta.entropy !== undefined ? `<span class="label">Entropy</span><span class="value">${escapeHtml(String(meta.entropy))}</span>` : ''}
-                    ${exifHtml}
-                    ${strings.length ? `<span class="label">Top Strings</span>${stringsHtml}` : ''}
+            return `
+                <div class="file-info-card">
+                    <h3>📄 File Info</h3>
+                    <div class="file-info-grid">
+                        <span class="label">Filename</span><span class="value">${escapeHtml(fi.filename || '')}</span>
+                        <span class="label">Size</span><span class="value">${escapeHtml(String((fi.size || 0).toLocaleString()))} bytes</span>
+                        <span class="label">MD5</span><span class="value">${escapeHtml(fi.md5 || '')}</span>
+                        <span class="label">SHA1</span><span class="value">${escapeHtml(fi.sha1 || '')}</span>
+                        <span class="label">SHA256</span><span class="value">${escapeHtml(fi.sha256 || '')}</span>
+                        <span class="label">Magic</span><span class="value">${escapeHtml(fi.magic || '')}</span>
+                        ${meta.mime_type ? `<span class="label">MIME Type</span><span class="value">${escapeHtml(meta.mime_type)}</span>` : ''}
+                        ${meta.entropy !== undefined ? `<span class="label">Entropy</span><span class="value">${escapeHtml(String(meta.entropy))}</span>` : ''}
+                        ${exifHtml}
+                        ${strings.length ? `<span class="label">Top Strings</span>${stringsHtml}` : ''}
+                    </div>
                 </div>
             `;
+        }
 
-            const sections = document.getElementById('sections');
-            if (sections) {
-                sections.parentNode.insertBefore(card, sections);
+        function buildBinaryYaraTable(events) {
+            const columns = ['Rule Name', 'Tags', 'Author'];
+            const sorted = [...events].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+
+            let filteredEvents = sorted;
+            if (Object.keys(currentFilters).length > 0) {
+                filteredEvents = sorted.filter(e => {
+                    for (const [col, val] of Object.entries(currentFilters)) {
+                        if (extractValue(e, col, -1) !== val) return false;
+                    }
+                    return true;
+                });
             }
+
+            const rows = filteredEvents.map(e => {
+                const fa = e.filealerts || {};
+                const ruleName = fa.rule_name || 'N/A';
+                const tagsHtml = (fa.tags || []).map(t => yaraTagBadgeHtml(t)).join('');
+                const author = fa.author || '';
+                const formatted = formatEvent(e);
+                return `<tr onclick="toggleRow(this)"><td style="max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(ruleName)}</span></td><td>${tagsHtml}</td><td>${escapeHtml(author)}</td></tr><tr class="detail-row"><td colspan="3"><div class="detail-content">${formatted}</div></td></tr>`;
+            });
+
+            let html = '<div class="section-content">';
+            if (rows.length === 0 && Object.keys(currentFilters).length > 0) {
+                html += EMPTY_FILTER_STATE_HTML;
+            } else if (rows.length === 0) {
+                html += '<div style="padding: 40px; text-align: center; color: #8b949e; font-size: 0.95rem;">No YARA matches found</div>';
+            } else {
+                html += '<table><thead><tr>';
+                columns.forEach(h => html += `<th>${h}</th>`);
+                html += '</tr></thead><tbody>';
+                rows.forEach(r => html += r);
+                html += '</tbody></table>';
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function buildBinaryAggregations(events) {
+            const aggContainer = document.getElementById('aggregations');
+            if (!aggContainer) return;
+            if (!advancedMode) {
+                aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                return;
+            }
+            const columns = ['Rule Name', 'Tags', 'Author'];
+            const html = buildAggregationTablesCore(events, columns, 'section-binary', extractValue);
+            aggContainer.innerHTML = '<div class="agg-panel"><div class="section-toggle-bar" onclick="toggleAggregations()">▾ Aggregation Tables</div><div class="agg-content">' + html + '</div></div>';
+        }
+
+        function buildBinaryAnalysisView(events) {
+            const fileAlerts = events.filter(e => e.event_type === 'filealerts');
+            const filteredAlerts = fileAlerts.filter(e => {
+                for (const [col, val] of Object.entries(currentFilters)) {
+                    if (extractValue(e, col, -1) !== val) return false;
+                }
+                return true;
+            });
+            const fileInfoHtml = buildFileInfoHtml(events);
+            const fileInfoContainer = document.getElementById('fileInfoContainer');
+            if (fileInfoContainer) {
+                fileInfoContainer.innerHTML = fileInfoHtml;
+                fileInfoContainer.style.display = 'block';
+            }
+            const yaraTableHtml = buildBinaryYaraTable(filteredAlerts);
+            const sectionsEl = document.getElementById('sections');
+            if (sectionsEl) {
+                sectionsEl.innerHTML = yaraTableHtml;
+            }
+            buildBinaryAggregations(filteredAlerts);
         }
         
-        function buildFileAlertCards(events) {
-            const container = document.getElementById('sections');
-            if (!container) return;
-            
-            let html = '<div class="yara-matches-section">';
-            html += '<h3>🛡️ YARA Matches</h3>';
-            
-            if (events.length === 0) {
-                html += '<div class="no-matches">No YARA matches</div>';
-            } else {
-                html += '<div class="file-alerts-grid">';
-                events.forEach(e => {
-                    const fa = e.filealerts || {};
-                    const tagsHtml = (fa.tags || []).map(t => yaraTagBadgeHtml(t)).join('');
-                    
-                    html += `
-                        <div class="file-alert-card" onclick="showFileAlertDetail('${escapeHtml(fa.sha256 || '')}', '${escapeHtml(fa.rule_name || '')}')">
-                            <div class="rule-name"><span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(fa.rule_name || 'Unknown')}</span></div>
-                            <div class="card-footer">
-                                ${tagsHtml}
-                            </div>
-                        </div>
-                    `;
+        function buildLogEventRow(evt, columns) {
+            let jsonData = _parseLogEventJson(evt);
+            const timestamp = escapeHtml((evt.timestamp || '').slice(0, 19));
+            const detail = getLogEventSmartDetail(jsonData);
+            const detailTruncated = detail.length > 120 ? detail.slice(0, 117) + '...' : detail;
+            const detailId = 'log-detail-' + (evt.row_id || ++_detailIdCounter);
+            const safeDetailId = escapeHtml(String(detailId));
+            const totalCols = 2 + (columns ? columns.length : 0); // Time + [cols] + Detail
+
+            let row = `<tr onclick="toggleLogRow(this, '${safeDetailId}')">`;
+            row += `<td class="timestamp">${timestamp}</td>`;
+            if (columns) {
+                columns.forEach(c => {
+                    let val = '';
+                    if (c.type === 'base') {
+                        if (c.field === 'Channel') val = jsonData.Channel || jsonData.Provider_Name || evt.app_proto || '';
+                        else if (c.field === 'EventID') val = String(jsonData.EventID || '');
+                        else if (c.field === 'Computer') val = jsonData.Computer || '';
+                    } else {
+                        val = getLogColumnValue(evt, c.field);
+                    }
+                    row += `<td>${val ? escapeHtml(val) : '<span style="color:#8b949e;">—</span>'}</td>`;
                 });
-                html += '</div>';
+            }
+            row += `<td>${detailTruncated ? escapeHtml(detailTruncated) : '<span style="color:#8b949e;">—</span>'}</td>`;
+            row += '</tr>';
+
+            const detailHtml = formatLogEventDetail(jsonData);
+            row += `<tr class="detail-row" id="${safeDetailId}"><td colspan="${totalCols}"><div class="log-detail-panel">${detailHtml}</div></td></tr>`;
+            return row;
+        }
+
+        function toggleLogRow(tr, detailId) {
+            const detailRow = document.getElementById(detailId);
+            if (detailRow) {
+                tr.classList.toggle('expanded-row');
+                detailRow.classList.toggle('visible');
+            }
+        }
+
+        function buildSigmaAlertRow(alert) {
+            const sev = (alert.severity || 'low').toLowerCase();
+            const sevClass = `sigma-severity-${sev.replace(/[^a-z]/g, '')}`;
+            const ruleTitle = escapeHtml(alert.rule_title || 'Unknown');
+            const ruleId = escapeHtml(alert.rule_id || '');
+            const timestamp = escapeHtml(alert.timestamp || '');
+            const logsource = escapeHtml(alert.logsource || '');
+
+            let mitreHtml = '';
+            try {
+                const techniques = JSON.parse(alert.mitre_techniques || '[]');
+                mitreHtml = techniques.map(t => {
+                    const tid = t.replace(/^attack\./i, '').toUpperCase();
+                    return `<a href="https://attack.mitre.org/techniques/${encodeURIComponent(tid)}/" target="_blank" rel="noopener noreferrer" class="mitre-tag">${escapeHtml(tid)}</a>`;
+                }).join('');
+            } catch(e) {
+                mitreHtml = '';
+            }
+
+            const detailId = 'sigma-detail-' + (alert.id || Math.random().toString(36).substr(2, 9));
+            const safeDetailId = escapeHtml(String(detailId));
+
+            let row = `<tr onclick="toggleSigmaRow(this, '${safeDetailId}')">`;
+            row += `<td class="timestamp">${timestamp}</td>`;
+            row += `<td><span class="badge ${sevClass}">${escapeHtml(sev.toUpperCase())}</span></td>`;
+            row += `<td><strong>${ruleTitle}</strong>${ruleId ? '<br><span style="color:#8b949e;font-size:0.8rem;">' + ruleId + '</span>' : ''}</td>`;
+            row += `<td>${mitreHtml}</td>`;
+            row += `<td>${logsource}</td>`;
+            row += '</tr>';
+
+            const detailHtml = formatSigmaAlertDetail(alert);
+            row += `<tr class="detail-row" id="${safeDetailId}"><td colspan="5"><div class="log-detail-panel">${detailHtml}</div></td></tr>`;
+            return row;
+        }
+
+        function toggleSigmaRow(tr, detailId) {
+            const detailRow = document.getElementById(detailId);
+            if (detailRow) {
+                tr.classList.toggle('expanded-row');
+                detailRow.classList.toggle('visible');
+            }
+        }
+
+        // Log Analysis UI helpers
+        let _detailIdCounter = 0;
+        const LOG_FIELD_LABELS = {
+            'Image': 'Image', 'CommandLine': 'Command Line', 'Commandline': 'Command Line',
+            'User': 'User', 'TargetUserName': 'Target User',
+            'SourceIp': 'Source IP', 'SourceIP': 'Source IP',
+            'DestinationIp': 'Dest IP', 'DestIP': 'Dest IP',
+            'TargetFilename': 'Target File', 'TargetObject': 'Target Object',
+            'ParentImage': 'Parent Image', 'IpAddress': 'IP Address',
+            'LogonType': 'Logon Type', 'ServiceName': 'Service',
+            'SourcePort': 'Src Port', 'DestinationPort': 'Dst Port',
+            'ProcessId': 'PID', 'ParentProcessId': 'Parent PID',
+            'exe': 'Executable', 'comm': 'Command', 'auid': 'Audit UID', 'uid': 'UID',
+            'pid': 'PID', 'ppid': 'Parent PID', 'message': 'Message', 'msg': 'Message',
+            'Message': 'Message', 'query': 'Query', 'hostname': 'Hostname', 'host': 'Host',
+            'program': 'Program', 'facility': 'Facility', 'priority': 'Priority', 'level': 'Level',
+            'type': 'Type', 'syscall': 'Syscall', 'terminal': 'Terminal',
+            'status': 'Status', 'method': 'Method', 'url': 'URL', 'port': 'Port',
+            'ip': 'IP', 'service': 'Service', 'action': 'Action', 'result': 'Result',
+            'cmd': 'Command', 'command': 'Command', 'path': 'Path', 'file': 'File',
+            'src_ip': 'Source IP', 'src_port': 'Source Port', 'dest_ip': 'Dest IP', 'dest_port': 'Dest Port',
+            'dst_ip': 'Dest IP', 'dst_port': 'Dest Port',
+        };
+
+        const LOG_FIELD_PRIORITY = {
+            'Image': 100, 'CommandLine': 100, 'Commandline': 100, 'cmd': 100, 'command': 100, 'comm': 100, 'exe': 100,
+            'User': 95, 'TargetUserName': 95, 'uid': 93, 'auid': 93,
+            'SourceIp': 90, 'DestinationIp': 90, 'SourceIP': 90, 'DestIP': 90, 'src_ip': 90, 'dst_ip': 90, 'ip': 90,
+            'TargetFilename': 85, 'TargetObject': 80, 'path': 83, 'file': 83,
+            'ParentImage': 78, 'IpAddress': 78,
+            'LogonType': 75, 'ServiceName': 75, 'service': 75,
+            'SourcePort': 72, 'DestinationPort': 72, 'port': 72, 'src_port': 72, 'dest_port': 72, 'dst_port': 72,
+            'ProcessId': 70, 'ParentProcessId': 70, 'pid': 70, 'ppid': 70,
+            'message': 65, 'msg': 65, 'Message': 65, 'query': 65,
+            'hostname': 65, 'host': 65, 'program': 63, 'facility': 62, 'priority': 62, 'level': 62,
+            'type': 60, 'syscall': 60, 'terminal': 60, 'action': 60, 'result': 60,
+            'status': 58, 'method': 58, 'url': 58,
+            'Channel': 50, 'EventID': 50, 'Computer': 50,
+        };
+
+        const LOG_NOISE_FIELDS = new Set([
+            'timestamp', 'event_type', 'id', 'json_data', 'row_id',
+            'proto', 'flow_id', 'tx_id', 'pcap_cnt', 'event_id',
+            'TimeCreated', 'SystemTime', 'UtcTime', 'TimeCreated_systemTime',
+            'Provider_Name', 'ProviderName', 'ProviderGuid',
+            'RecordNumber', 'EventRecordID', 'EventRecordId',
+            'ProcessGuid', 'LogonGuid', 'ParentProcessGuid',
+            'Version', 'Description', 'Company', 'Product', 'FileVersion',
+            'Task', 'Opcode', 'Keywords', 'Level',
+        ]);
+
+        function _getLabelForField(field) {
+            return LOG_FIELD_LABELS[field] || field;
+        }
+
+        function _getFieldForLabel(label) {
+            for (const [field, lbl] of Object.entries(LOG_FIELD_LABELS)) {
+                if (lbl === label) return field;
+            }
+            return label;
+        }
+
+        function _parseLogEventJson(event) {
+            let jd = event.json_data;
+            if (typeof jd === 'string') {
+                try { jd = JSON.parse(jd || '{}'); } catch(e) { jd = {}; }
+            }
+            if (!jd || typeof jd !== 'object') return {};
+            // Unwrap nested json_data (outer dict has event_type, timestamp, etc.)
+            if (jd.json_data) {
+                if (typeof jd.json_data === 'string') {
+                    try { jd = JSON.parse(jd.json_data); } catch(e) {}
+                } else if (typeof jd.json_data === 'object') {
+                    jd = jd.json_data;
+                }
+            }
+            return jd;
+        }
+
+        function discoverLogColumns(events) {
+            if (!events || events.length === 0) return [];
+            const total = events.length;
+            const threshold = Math.max(2, total * 0.1);
+            const counts = {};
+            const allFields = new Set();
+
+            events.forEach(e => {
+                const jd = _parseLogEventJson(e);
+                if (!jd || typeof jd !== 'object') return;
+                Object.keys(jd).forEach(k => {
+                    if (LOG_NOISE_FIELDS.has(k)) return;
+                    allFields.add(k);
+                    const val = jd[k];
+                    if (val !== undefined && val !== null && val !== '') {
+                        counts[k] = (counts[k] || 0) + 1;
+                    }
+                });
+            });
+
+            const baseFields = ['Channel', 'EventID', 'Computer'];
+            const baseCols = [];
+            baseFields.forEach(f => {
+                if ((counts[f] || 0) > 0) {
+                    baseCols.push({ field: f, label: _getLabelForField(f), type: 'base' });
+                }
+            });
+
+            const discovered = Array.from(allFields)
+                .filter(f => !baseFields.includes(f))
+                .filter(f => (counts[f] || 0) >= threshold)
+                .sort((a, b) => {
+                    const pa = LOG_FIELD_PRIORITY[a] || 0;
+                    const pb = LOG_FIELD_PRIORITY[b] || 0;
+                    if (pb !== pa) return pb - pa;
+                    return (counts[b] || 0) - (counts[a] || 0);
+                })
+                .slice(0, 6 - baseCols.length)
+                .map(f => ({ field: f, label: _getLabelForField(f), type: 'dynamic' }));
+
+            return [...baseCols, ...discovered];
+        }
+
+        function getLogColumnValue(event, field) {
+            const jd = _parseLogEventJson(event);
+            const val = jd[field];
+            if (val === undefined || val === null || val === '') return '';
+            return String(val);
+        }
+
+        function getLogEventSmartDetail(jsonData) {
+            const jd = jsonData;
+            if (!jd || typeof jd !== 'object') return '';
+            // Network events
+            if (jd.SourceIp || jd.DestinationIp || jd.src_ip || jd.dst_ip) {
+                const src = jd.SourceIp || jd.src_ip || '';
+                const sport = jd.SourcePort || jd.src_port || '';
+                const dst = jd.DestinationIp || jd.dst_ip || '';
+                const dport = jd.DestinationPort || jd.dest_port || jd.dst_port || '';
+                let detail = '';
+                if (src && sport) detail += `${src}:${sport}`;
+                else if (src) detail += src;
+                if (detail && (dst || dport)) detail += ' → ';
+                if (dst && dport) detail += `${dst}:${dport}`;
+                else if (dst) detail += dst;
+                return detail;
+            }
+            // Process events
+            if (jd.CommandLine || jd.cmd || jd.command || jd.comm) return String(jd.CommandLine || jd.cmd || jd.command || jd.comm);
+            if (jd.Image || jd.exe) return String(jd.Image || jd.exe);
+            // File events
+            if (jd.TargetFilename || jd.path || jd.file) return String(jd.TargetFilename || jd.path || jd.file);
+            // Registry events
+            if (jd.TargetObject) return String(jd.TargetObject);
+            // Auth events
+            if (jd.TargetUserName || jd.uid || jd.auid) return String(jd.TargetUserName || jd.uid || jd.auid);
+            if (jd.User) return String(jd.User);
+            // Service events
+            if (jd.ServiceName || jd.service) return String(jd.ServiceName || jd.service);
+            // Query / URL
+            if (jd.query || jd.hostname || jd.host) return String(jd.query || jd.hostname || jd.host);
+            if (jd.url || jd.method || jd.status) {
+                return [jd.method, jd.url, jd.status].filter(Boolean).join(' ');
+            }
+            // Fallback
+            if (jd.message || jd.msg || jd.Message) return String(jd.message || jd.msg || jd.Message);
+            return '';
+        }
+
+        function getFilteredLogEvents(events) {
+            if (Object.keys(currentFilters).length === 0) return events;
+            return events.filter(e => {
+                for (const [col, val] of Object.entries(currentFilters)) {
+                    let extracted = '';
+                    if (col === 'Time') {
+                        extracted = (e.timestamp || '').slice(0, 19);
+                    } else if (col === 'Detail') {
+                        extracted = getLogEventSmartDetail(_parseLogEventJson(e));
+                    } else {
+                        const field = _getFieldForLabel(col);
+                        extracted = getLogColumnValue(e, field);
+                    }
+                    if (extracted !== val) return false;
+                }
+                return true;
+            });
+        }
+
+        function getFilteredSigmaAlerts(alerts) {
+            if (Object.keys(currentFilters).length === 0) return alerts;
+            return alerts.filter(a => {
+                for (const [col, val] of Object.entries(currentFilters)) {
+                    let extracted = '';
+                    switch(col) {
+                        case 'Severity': extracted = a.severity || ''; break;
+                        case 'Rule': extracted = a.rule_title || ''; break;
+                        case 'MITRE Technique': {
+                            try {
+                                const techniques = JSON.parse(a.mitre_techniques || '[]');
+                                extracted = techniques.map(t => t.replace(/^attack\./i, '').toUpperCase()).join(', ');
+                            } catch(e) { extracted = ''; }
+                            break;
+                        }
+                        case 'Log Source': extracted = a.logsource || ''; break;
+                        case 'Timestamp': extracted = a.timestamp || ''; break;
+                        default: {
+                            // Dynamic column from original_log
+                            try {
+                                const logObj = JSON.parse(a.original_log || '{}');
+                                if (logObj && typeof logObj === 'object') {
+                                    const field = _getFieldForLabel(col);
+                                    extracted = String(logObj[field] || '');
+                                }
+                            } catch(e) { extracted = ''; }
+                        }
+                    }
+                    if (extracted !== val) return false;
+                }
+                return true;
+            });
+        }
+
+        function buildLogSectionContent(sectionId, events) {
+            const container = document.getElementById(sectionId);
+            if (!container) return;
+            let html = '<div class="section-content">';
+            if (events.length === 0 && Object.keys(currentFilters).length > 0) {
+                html += EMPTY_FILTER_STATE_HTML;
+            } else if (events.length === 0) {
+                html += '<div class="no-matches">No log events found</div>';
+            } else {
+                const columns = discoverLogColumns(events);
+                html += '<div style="overflow-x:auto;"><table><thead><tr>';
+                html += '<th>Time</th>';
+                columns.forEach(c => { html += `<th>${escapeHtml(c.label)}</th>`; });
+                html += '<th>Detail</th>';
+                html += '</tr></thead><tbody>';
+                events.forEach(evt => { html += buildLogEventRow(evt, columns); });
+                html += '</tbody></table></div>';
             }
             html += '</div>';
             container.innerHTML = html;
         }
-        
-        function formatFileAlertDetail(e) {
-            const fa = e.filealerts || {};
 
-            let html = '<div style="display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px 12px; font-size: 0.9rem; overflow-wrap: break-word;">';
-            html += `<span style="color: #8b949e;">Rule</span><span><span class="badge" style="background:${COLORS.FILE_ALERT.bg};color:${COLORS.FILE_ALERT.text}">${escapeHtml(fa.rule_name || '')}</span></span>`;
-            html += `<span style="color: #8b949e;">SHA256</span><span class="mono">${escapeHtml(fa.sha256 || '')}</span>`;
-            html += `<span style="color: #8b949e;">Tags</span><span>${(fa.tags || []).map(t => yaraTagBadgeHtml(t)).join('')}</span>`;
-            html += renderMetadataRows(fa.meta);
+        function buildSigmaAlertSectionContent(sectionId, alerts) {
+            const container = document.getElementById(sectionId);
+            if (!container) return;
+            let html = '<div class="section-content">';
+            if (alerts.length === 0 && Object.keys(currentFilters).length > 0) {
+                html += EMPTY_FILTER_STATE_HTML;
+            } else if (alerts.length === 0) {
+                html += '<div class="no-matches">No Sigma alerts detected</div>';
+            } else {
+                html += '<table><thead><tr>';
+                html += '<th>Timestamp</th><th>Severity</th><th>Rule</th><th>MITRE Technique</th><th>Log Source</th>';
+                html += '</tr></thead><tbody>';
+                alerts.forEach(alert => { html += buildSigmaAlertRow(alert); });
+                html += '</tbody></table>';
+            }
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function buildLogAggregations(events, sectionId) {
+            const aggContainer = document.getElementById('aggregations');
+            if (!aggContainer) return;
+            if (!advancedMode) {
+                aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                return;
+            }
+            const counts = {};
+            const columns = discoverLogColumns(events);
+            const aggCols = columns.map(c => c.label);
+            aggCols.forEach(col => { counts[col] = {}; });
+            events.forEach(e => {
+                const jd = _parseLogEventJson(e);
+                columns.forEach(c => {
+                    let val = '';
+                    if (c.type === 'base') {
+                        if (c.field === 'Channel') val = jd.Channel || jd.Provider_Name || e.app_proto || '';
+                        else if (c.field === 'EventID') val = String(jd.EventID || '');
+                        else if (c.field === 'Computer') val = jd.Computer || '';
+                    } else {
+                        val = String(jd[c.field] || '');
+                    }
+                    if (val) counts[c.label][val] = (counts[c.label][val] || 0) + 1;
+                });
+            });
+            let html = '<div class="agg-panel"><div class="section-toggle-bar" onclick="toggleAggregations()">▾ Aggregation Tables</div><div class="agg-content"><div class="agg-grid">';
+            for (const col of aggCols) {
+                if (hiddenAggregations.has(sectionId + ':' + col)) continue;
+                const colCounts = counts[col];
+                const entries = Object.entries(colCounts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
+                if (entries.length === 0) continue;
+                html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
+                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
+                    <table><thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead><tbody>`;
+                for (const [val, count] of entries) {
+                    const escapedVal = escapeHtml(val);
+                    html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(val)}')">
+                        <td style="text-align:right;color:#8b949e;">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table></div></div></div>';
+            }
+            html += '</div></div></div>';
+            aggContainer.innerHTML = html;
+        }
+
+        function discoverSigmaAlertColumns(alerts) {
+            if (!alerts || alerts.length === 0) return [];
+            const total = alerts.length;
+            const threshold = Math.max(2, total * 0.1);
+            const counts = {};
+            const allFields = new Set();
+
+            alerts.forEach(a => {
+                try {
+                    const logObj = JSON.parse(a.original_log || '{}');
+                    if (!logObj || typeof logObj !== 'object') return;
+                    Object.keys(logObj).forEach(k => {
+                        if (LOG_NOISE_FIELDS.has(k)) return;
+                        allFields.add(k);
+                        const val = logObj[k];
+                        if (val !== undefined && val !== null && val !== '') {
+                            counts[k] = (counts[k] || 0) + 1;
+                        }
+                    });
+                } catch(e) {}
+            });
+
+            return Array.from(allFields)
+                .filter(f => (counts[f] || 0) >= threshold)
+                .sort((a, b) => (counts[b] || 0) - (counts[a] || 0))
+                .slice(0, 3)
+                .map(f => ({ field: f, label: _getLabelForField(f) }));
+        }
+
+        function buildSigmaAlertAggregations(alerts, sectionId) {
+            const aggContainer = document.getElementById('aggregations');
+            if (!aggContainer) return;
+            if (!advancedMode) {
+                aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                return;
+            }
+            const counts = {};
+            const baseCols = ['Severity', 'Rule', 'MITRE Technique', 'Log Source'];
+            const dynamicCols = discoverSigmaAlertColumns(alerts);
+            const aggCols = [...baseCols, ...dynamicCols.map(c => c.label)];
+            aggCols.forEach(col => { counts[col] = {}; });
+            alerts.forEach(a => {
+                const sev = a.severity || '';
+                if (sev) counts['Severity'][sev] = (counts['Severity'][sev] || 0) + 1;
+                const rule = a.rule_title || '';
+                if (rule) counts['Rule'][rule] = (counts['Rule'][rule] || 0) + 1;
+                let techniques = [];
+                try { techniques = JSON.parse(a.mitre_techniques || '[]'); } catch(e) {}
+                techniques.forEach(t => {
+                    const tid = t.replace(/^attack\./i, '').toUpperCase();
+                    if (tid) counts['MITRE Technique'][tid] = (counts['MITRE Technique'][tid] || 0) + 1;
+                });
+                const logsource = a.logsource || '';
+                if (logsource) counts['Log Source'][logsource] = (counts['Log Source'][logsource] || 0) + 1;
+                dynamicCols.forEach(c => {
+                    let val = '';
+                    try {
+                        const logObj = JSON.parse(a.original_log || '{}');
+                        if (logObj && typeof logObj === 'object') {
+                            val = String(logObj[c.field] || '');
+                        }
+                    } catch(e) {}
+                    if (val) counts[c.label][val] = (counts[c.label][val] || 0) + 1;
+                });
+            });
+            let html = '<div class="agg-panel"><div class="section-toggle-bar" onclick="toggleAggregations()">▾ Aggregation Tables</div><div class="agg-content"><div class="agg-grid">';
+            for (const col of aggCols) {
+                if (hiddenAggregations.has(sectionId + ':' + col)) continue;
+                const colCounts = counts[col];
+                const entries = Object.entries(colCounts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
+                if (entries.length === 0) continue;
+                html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
+                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
+                    <table><thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead><tbody>`;
+                for (const [val, count] of entries) {
+                    const escapedVal = escapeHtml(val);
+                    html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(val)}')">
+                        <td style="text-align:right;color:#8b949e;">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table></div></div></div>';
+            }
+            html += '</div></div></div>';
+            aggContainer.innerHTML = html;
+        }
+
+        function formatLogEventDetail(jsonData) {
+            if (!jsonData || Object.keys(jsonData).length === 0) return '<div style="color:#8b949e;padding:10px;">No event data available</div>';
+
+            const sections = [
+                {
+                    title: 'Event Info',
+                    color: '#b0b0b0',
+                    fields: ['Channel', 'EventID', 'EventRecordID', 'Computer', 'SystemTime', 'UtcTime', 'Level', 'Task', 'Opcode', 'Keywords']
+                },
+                {
+                    title: 'Process',
+                    color: '#58a6ff',
+                    fields: ['Image', 'CommandLine', 'CurrentDirectory', 'ParentImage', 'ParentCommandLine', 'ParentProcessId', 'ProcessId', 'ProcessGuid', 'IntegrityLevel', 'OriginalFileName']
+                },
+                {
+                    title: 'Network',
+                    color: '#66bb6a',
+                    fields: ['SourceIp', 'SourcePort', 'SourceHostname', 'DestinationIp', 'DestinationPort', 'DestinationHostname', 'DestinationPortName', 'Protocol', 'Initiated']
+                },
+                {
+                    title: 'User',
+                    color: '#ffa726',
+                    fields: ['User', 'UserID', 'LogonId', 'LogonGuid', 'TerminalSessionId']
+                },
+                {
+                    title: 'File / Hashes',
+                    color: '#9c27b0',
+                    fields: ['Hashes', 'MD5', 'SHA1', 'SHA256', 'IMPHASH', 'Signed', 'Signature', 'SignatureStatus']
+                },
+                {
+                    title: 'Other',
+                    color: '#8b949e',
+                    fields: ['Provider_Name', 'RuleName', 'Guid', 'Version', 'Description', 'Company', 'Product', 'FileVersion', 'ImageLoaded', 'PipeName']
+                },
+                {
+                    title: 'Source',
+                    color: '#8b949e',
+                    fields: ['OriginalLogfile']
+                }
+            ];
+
+            let html = `<div style="display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px 12px; font-size: 0.9rem; overflow-wrap: break-word;">`;
+            let hasAny = false;
+
+            for (const section of sections) {
+                let sectionHtml = '';
+                for (const field of section.fields) {
+                    const val = jsonData[field];
+                    if (val !== undefined && val !== null && val !== '') {
+                        sectionHtml += htmlRowText(field, String(val), 'mono');
+                    }
+                }
+                if (sectionHtml) {
+                    html += htmlSection(section.title, section.color);
+                    html += sectionHtml;
+                    hasAny = true;
+                }
+            }
+
+            // Raw JSON fallback for any fields not in known sections
+            const knownFields = new Set(sections.flatMap(s => s.fields));
+            const remaining = Object.entries(jsonData).filter(([k, v]) => {
+                return !knownFields.has(k) && v !== undefined && v !== null && v !== '';
+            });
+            if (remaining.length > 0) {
+                html += htmlSection('Raw Data', '#8b949e');
+                for (const [k, v] of remaining) {
+                    html += htmlRowText(k, String(v), 'mono');
+                }
+                hasAny = true;
+            }
+
+            html += '</div>';
+            return hasAny ? html : '<div style="color:#8b949e;padding:10px;">No event data available</div>';
+        }
+
+                function formatSigmaAlertDetail(alert) {
+            let html = `<div style="display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px 12px; font-size: 0.9rem; overflow-wrap: break-word;">`;
+
+            // Matched Event
+            let eventHtml = '';
+            try {
+                const logObj = JSON.parse(alert.original_log || '{}');
+                if (logObj && Object.keys(logObj).length > 0) {
+                    eventHtml = formatLogEventDetail(logObj);
+                }
+            } catch(e) {}
+            if (eventHtml) {
+                html += htmlSection('Matched Event', COLORS.EVENT.log);
+                html += `<div style="grid-column: 1 / -1;">${eventHtml}</div>`;
+            }
+
+            // Sigma Rule
+            html += htmlSection('Sigma Rule', COLORS.EVENT.sigmaalert);
+            html += htmlRowText('Rule Title', alert.rule_title);
+            html += htmlRowText('Rule ID', alert.rule_id);
+            html += htmlRowText('Severity', alert.severity);
+            html += htmlRowText('Level', alert.level);
+            html += htmlRowText('Log Source', alert.logsource);
+
+            let mitreHtml = '';
+            try {
+                const techniques = JSON.parse(alert.mitre_techniques || '[]');
+                mitreHtml = techniques.map(t => {
+                    const tid = t.replace(/^attack\./i, '').toUpperCase();
+                    return `<a href="https://attack.mitre.org/techniques/${encodeURIComponent(tid)}/" target="_blank" rel="noopener noreferrer" class="mitre-tag">${escapeHtml(tid)}</a>`;
+                }).join('');
+            } catch(e) {}
+            if (mitreHtml) {
+                html += htmlRow('MITRE Techniques', mitreHtml);
+            }
+
+            let tagsHtml = '';
+            try {
+                const tags = JSON.parse(alert.tags || '[]');
+                if (tags.length > 0) {
+                    tagsHtml = tags.map(t => `<span class="badge badge-info">${escapeHtml(t)}</span>`).join(' ');
+                }
+            } catch(e) {}
+            if (tagsHtml) {
+                html += htmlRow('Tags', tagsHtml);
+            }
+
             html += '</div>';
             return html;
         }
-        
-        function showFileAlertDetail(sha256, ruleName) {
-            // Find the matching event and show its detail panel
-            const event = allEvents.find(e =>
-                e.event_type === 'filealerts' &&
-                e.filealerts?.sha256 === sha256 &&
-                e.filealerts?.rule_name === ruleName
-            );
-            if (!event) return;
-            
-            // Create a modal-like display for the detail
-            const detailHtml = formatFileAlertDetail(event);
-            const modal = document.createElement('div');
-            modal.className = 'modal active';
-            modal.innerHTML = `
-                <div class="modal-content" style="max-width: 600px;">
-                    <div class="modal-header">
-                        <h3>YARA Match Detail</h3>
-                        <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
-                    </div>
-                    <div style="padding: 20px;">
-                        ${detailHtml}
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            
-            // Close modal when clicking outside the content
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    modal.remove();
-                }
-            });
-        }
-        
+
         function buildSection(eventType, events) {
             const sorted = [...events].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
             const columns = getColumnsForType(eventType);
@@ -1485,6 +2252,22 @@
         }
 
         function computeFilteredStats() {
+            if (isLogAnalysisMode) {
+                const stats = {};
+                const logEvents = tabDataCache['log'] || [];
+                const sigmaAlerts = tabDataCache['sigmaalert'] || [];
+                let logCount = 0;
+                for (const e of logEvents) {
+                    if (eventMatchesFilters(e)) logCount++;
+                }
+                if (logCount > 0) stats['log'] = logCount;
+                let sigmaCount = 0;
+                for (const a of sigmaAlerts) {
+                    if (sigmaAlertMatchesFilters(a)) sigmaCount++;
+                }
+                if (sigmaCount > 0) stats['sigmaalert'] = sigmaCount;
+                return stats;
+            }
             const stats = {};
             const events = allEvents.filter(e => e.event_type !== 'stats');
             for (const e of events) {
@@ -1494,6 +2277,29 @@
                 }
             }
             return stats;
+        }
+
+        function sigmaAlertMatchesFilters(alert) {
+            if (Object.keys(currentFilters).length === 0) return true;
+            for (const [col, val] of Object.entries(currentFilters)) {
+                let extracted = '';
+                switch(col) {
+                    case 'Severity': extracted = alert.severity || ''; break;
+                    case 'Rule': extracted = alert.rule_title || ''; break;
+                    case 'MITRE Technique': {
+                        try {
+                            const techniques = JSON.parse(alert.mitre_techniques || '[]');
+                            extracted = techniques.map(t => t.replace(/^attack\./i, '').toUpperCase()).join(', ');
+                        } catch(e) { extracted = ''; }
+                        break;
+                    }
+                    case 'Log Source': extracted = alert.logsource || ''; break;
+                    case 'Timestamp': extracted = alert.timestamp || ''; break;
+                    default: extracted = '';
+                }
+                if (extracted !== val) return false;
+            }
+            return true;
         }
 
         function buildStats(filteredStats) {
@@ -1518,15 +2324,17 @@
                 });
             });
             
-            const allFiltered = stats.reduce((a, s) => a + s.count, 0);
-            const allTotal = Object.values(baseEventStats).reduce((a, b) => a + b, 0) - (baseEventStats['stats'] || 0);
-            stats.push({
-                id: 'all',
-                label: 'All Events',
-                count: allFiltered,
-                total: allTotal,
-                color: '#f0f6fc'
-            });
+            if (!isLogAnalysisMode) {
+                const allFiltered = stats.reduce((a, s) => a + s.count, 0);
+                const allTotal = Object.values(baseEventStats).reduce((a, b) => a + b, 0) - (baseEventStats['stats'] || 0);
+                stats.push({
+                    id: 'all',
+                    label: 'All Events',
+                    count: allFiltered,
+                    total: allTotal,
+                    color: '#f0f6fc'
+                });
+            }
             
             const visibleSection = document.querySelector('.section:not(.section-hidden):not(.agg-section)');
             const activeType = visibleSection ? visibleSection.id.replace('section-', '') : (stats[0] && stats[0].id);
@@ -1673,7 +2481,7 @@
                 const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
                 
                 html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
-                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${col.replace(/'/g, "\\'")}')" title="Hide">&times;</button></div>
+                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
                     <table>
                         <thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead>
                         <tbody>`;
@@ -1682,7 +2490,7 @@
                     const displayVal = val === '(empty)' ? '' : val;
                     const escapedVal = escapeHtml(val);
                     const filterVal = val === '(empty)' ? '' : val;
-                    html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${col.replace(/'/g, "\\'")}', '${String(filterVal).replace(/'/g, "\\'")}')">
+                    html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(filterVal)}')">
                         <td style="text-align:right;color:#8b949e;">${count}</td>
                         <td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
                     </tr>`;
@@ -1729,6 +2537,16 @@
                 case 'Filename': return e.fileinfo?.filename || '';
                 case 'Rule Name': return e.filealerts?.rule_name || '';
                 case 'Tags': return (e.filealerts?.tags || []).join(', ');
+                case 'Author': return e.filealerts?.author || '';
+                case 'Channel': {
+                    try { const jd = _parseLogEventJson(e); return jd.Channel || jd.Provider_Name || e.app_proto || ''; } catch(e2) { return e.app_proto || ''; }
+                }
+                case 'EventID': {
+                    try { const jd = _parseLogEventJson(e); return String(jd.EventID || ''); } catch(e2) { return ''; }
+                }
+                case 'Computer': {
+                    try { const jd = _parseLogEventJson(e); return jd.Computer || ''; } catch(e2) { return ''; }
+                }
                 case 'Detail': {
                     const etype = e.event_type || '';
                     if (etype === 'alert') return e.alert?.signature || '';
@@ -1739,9 +2557,23 @@
                     if (etype === 'ftp') return e.ftp?.command || '';
                     if (etype === 'anomaly') return e.anomaly?.message || '';
                     if (etype === 'fileinfo') return e.fileinfo?.filename || '';
+                    if (etype === 'log') {
+                        try {
+                            const jd = _parseLogEventJson(e);
+                            return getLogEventSmartDetail(jd);
+                        } catch(e2) { return ''; }
+                    }
                     return '';
                 }
-                default: return '';
+                default: {
+                    // Generic fallback for log analysis dynamic columns
+                    const field = _getFieldForLabel(col);
+                    if (field) {
+                        const v = getLogColumnValue(e, field);
+                        if (v !== '') return v;
+                    }
+                    return '';
+                }
             }
         }
         
@@ -1754,14 +2586,15 @@
         let eventTypes = [];
         let currentMd5 = '';
           let currentFileName = '';
-          let currentFilters = {};
+          var currentFilters = {};
           let currentSearch = [];
-          let advancedMode = false;
+          var advancedMode = false;
           let diagramMode = true;
-          let hiddenAggregations = new Set();
+          var hiddenAggregations = new Set();
           let baseEventStats = {};
+          var isLogAnalysisMode = false;
 
-        const EVENT_TYPE_ICONS = { alert: '🔴', dns: '🟢', http: '🟠', tls: '🔵', flow: '🟣', ftp: '📁', anomaly: '⚠️', fileinfo: '📄', filealerts: '🚨' };
+        const EVENT_TYPE_ICONS = { alert: '🔴', dns: '🟢', http: '🟠', tls: '🔵', flow: '🟣', ftp: '📁', anomaly: '⚠️', fileinfo: '📄', filealerts: '🚨', log: '📋', sigmaalert: '🛡️' };
         const ALL_EVENTS_COLUMNS = ['Time', 'Type', 'Protocol', 'Source IP', 'Source Port', 'Dest IP', 'Dest Port', 'Detail'];
         const EMPTY_FILTER_STATE_HTML = '<div style="padding: 40px; text-align: center; color: #8b949e; font-size: 0.95rem;">🔍 No events match the current filters</div>';
         const AGG_COLLAPSED_HTML = '<div class="agg-panel"><div class="section-toggle-bar" onclick="toggleAggregations()">▸ Aggregation Tables</div></div>';
@@ -1786,37 +2619,62 @@
         }
 
         function refreshCurrentView(sectionId, eventType) {
-            updateFilterBarVisibility();
-            buildStats(computeFilteredStats());
-            if (eventType === 'all') {
-                buildAllEvents();
-                buildAggregationsSectionAll();
-            } else {
-                buildSection(eventType, sections[eventType]);
-                const filtered = getFilteredEvents(sectionId, sections[eventType], eventType);
+            if (isLogAnalysisMode && eventType === 'log') {
+                const events = tabDataCache['log'] || [];
+                const filtered = getFilteredLogEvents(events);
+                if (advancedMode) buildLogAggregations(filtered, sectionId);
+                buildLogSectionContent(sectionId, filtered);
+                return;
+            }
+            if (isLogAnalysisMode && eventType === 'sigmaalert') {
+                const alerts = tabDataCache['sigmaalert'] || [];
+                const filtered = getFilteredSigmaAlerts(alerts);
+                if (advancedMode) buildSigmaAlertAggregations(filtered, sectionId);
+                buildSigmaAlertSectionContent(sectionId, filtered);
+                return;
+            }
+            const events = tabDataCache[eventType] || sections[eventType] || [];
+            const filtered = getFilteredEvents(sectionId, events, eventType);
+            if (advancedMode) {
                 buildAggregationsSection(eventType, filtered);
             }
-            updateSankeyDiagram();
+            buildSection(eventType, events);
         }
 
         function applyFilters(sectionId, filters) {
             for (const f of filters) {
                 currentFilters[f.column] = f.value;
             }
+            if (sectionId === 'section-binary') {
+                buildBinaryAnalysisView(allEvents);
+                updateFilterBarVisibility();
+                buildStats(computeFilteredStats());
+                return;
+            }
             const eventType = sectionId.replace('section-', '');
             refreshCurrentView(sectionId, eventType);
-        }
-
-        function applyFilter(sectionId, columnName, value) {
-            applyFilters(sectionId, [{column: columnName, value: value}]);
+            updateFilterBarVisibility();
+            buildStats(computeFilteredStats());
         }
 
         function clearFilter(columnName) {
             delete currentFilters[columnName];
             const visibleSection = document.querySelector('.section:not(.section-hidden):not(.agg-section)');
-            if (!visibleSection) return;
+            if (!visibleSection) {
+                // Binary analysis mode
+                buildBinaryAnalysisView(allEvents);
+                updateFilterBarVisibility();
+                buildStats(computeFilteredStats());
+                return;
+            }
             const eventType = visibleSection.id.replace('section-', '');
             refreshCurrentView(visibleSection.id, eventType);
+            updateFilterBarVisibility();
+            buildStats(computeFilteredStats());
+        }
+
+        function applyFilter(sectionId, columnName, value) {
+            applyFilters(sectionId, [{column: columnName, value: value}]);
         }
 
         async function clearAllFilters() {
@@ -1889,38 +2747,101 @@
             if (!currentMd5) return;
             showLoading(currentSearch.length > 0 ? 'Searching...' : 'Loading events...');
 
-            const qParam = currentSearch.length > 0 ? currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('') : '';
+            try {
+                const qParam = currentSearch.length > 0 ? currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('') : '';
 
-            const [statsResp, baseStatsResp] = await Promise.all([
-                fetch('/api/stats?md5=' + currentMd5 + qParam + '&t=' + Date.now()),
-                fetch('/api/stats?md5=' + currentMd5 + '&t=' + Date.now())
-            ]);
-            eventStats = await statsResp.json();
-            baseEventStats = await baseStatsResp.json();
+                const [statsResp, baseStatsResp] = await Promise.all([
+                    fetch('/api/stats?md5=' + currentMd5 + qParam + '&t=' + Date.now()),
+                    fetch('/api/stats?md5=' + currentMd5 + '&t=' + Date.now())
+                ]);
+                eventStats = await statsResp.json();
+                baseEventStats = await baseStatsResp.json();
 
-            const types = sortEventTypes(Object.keys(baseEventStats).filter(t => t !== 'stats' && t !== 'all'));
-            eventTypes = types;
+                const types = sortEventTypes(Object.keys(baseEventStats).filter(t => t !== 'stats' && t !== 'all'));
+                eventTypes = types;
 
-            const eventsResp = await fetch('/api/events?md5=' + currentMd5 + '&limit=' + CONFIG.MAX_QUERY_LIMIT + qParam + '&t=' + Date.now());
-            allEvents = await eventsResp.json();
+                const eventsResp = await fetch('/api/events?md5=' + currentMd5 + '&limit=' + CONFIG.MAX_QUERY_LIMIT + qParam + '&t=' + Date.now());
+                allEvents = await eventsResp.json();
 
-            const isFileOnly = !eventTypes.includes('alert');
-            
-            if (isFileOnly) {
-                document.body.classList.add('file-analysis');
+                // Use existing file-analysis class set during initial load
+                const isFileOnly = document.body.classList.contains('file-analysis');
+                const isLogFile = isLogAnalysisMode;
+
+                if (isFileOnly) {
                 document.querySelectorAll('.file-info-card').forEach(c => c.remove());
                 document.getElementById('sections').innerHTML = '';
                 tabDataCache = {};
-                buildFileInfoCard();
-                
-                const fileAlertsEvents = allEvents.filter(e => e.event_type === 'filealerts');
-                if (fileAlertsEvents.length > 0) {
-                    buildFileAlertCards(fileAlertsEvents);
+
+                if (isLogFile) {
+                    isLogAnalysisMode = true;
+
+                    try {
+                        const qParamLocal = currentSearch.length > 0 ? currentSearch.map(t => '&q=' + encodeURIComponent(t)).join('') : '';
+                        // Fetch unfiltered baseline
+                        const [baseLogResp, baseSigmaResp] = await Promise.all([
+                            fetch('/api/events?md5=' + currentMd5 + '&type=log&limit=' + CONFIG.MAX_QUERY_LIMIT + '&t=' + Date.now()),
+                            fetch('/api/sigma-alerts?md5=' + currentMd5 + '&limit=5000&t=' + Date.now())
+                        ]);
+                        const baseLogEvents = await baseLogResp.json();
+                        const baseSigmaAlerts = await baseSigmaResp.json();
+                        baseEventStats = { log: baseLogEvents.length, sigmaalert: baseSigmaAlerts.length };
+
+                        // Fetch filtered data if search is active
+                        let logEvents = baseLogEvents;
+                        let sigmaAlerts = baseSigmaAlerts;
+                        if (qParamLocal) {
+                            const [filteredLogResp, filteredSigmaResp] = await Promise.all([
+                                fetch('/api/events?md5=' + currentMd5 + '&type=log&limit=' + CONFIG.MAX_QUERY_LIMIT + qParamLocal + '&t=' + Date.now()),
+                                fetch('/api/sigma-alerts?md5=' + currentMd5 + '&limit=5000' + qParamLocal + '&t=' + Date.now())
+                            ]);
+                            logEvents = await filteredLogResp.json();
+                            sigmaAlerts = await filteredSigmaResp.json();
+                        }
+                        tabDataCache['log'] = logEvents;
+                        tabDataCache['sigmaalert'] = sigmaAlerts;
+                        allEvents = logEvents;
+                        eventStats = { log: logEvents.length, sigmaalert: sigmaAlerts.length };
+
+                        eventTypes = sortEventTypes(Object.keys(baseEventStats));
+                        buildStats(computeFilteredStats());
+                        buildSections();
+
+                        const defaultType = sigmaAlerts.length > 0 ? 'sigmaalert' : 'log';
+                        document.querySelectorAll('.section').forEach(s => s.classList.add('section-hidden'));
+                        const defaultSection = document.getElementById('section-' + defaultType);
+                        if (defaultSection) defaultSection.classList.remove('section-hidden');
+                        loadTabData(defaultType, null);
+
+                        const aggContainer = document.getElementById('aggregations');
+                        if (aggContainer) {
+                            if (advancedMode) {
+                                if (defaultType === 'sigmaalert') {
+                                    buildSigmaAlertAggregations(getFilteredSigmaAlerts(sigmaAlerts), 'section-sigmaalert');
+                                } else {
+                                    buildLogAggregations(getFilteredLogEvents(logEvents), 'section-log');
+                                }
+                            } else {
+                                aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                            }
+                        }
+                    } catch(e) {
+                        console.error('Failed to load log analysis:', e);
+                        document.getElementById('sections').innerHTML = '<div class="log-events-section"><h3>📋 Log Events</h3><div class="no-matches">Error loading log events</div></div>';
+                    }
                 } else {
-                    document.getElementById('sections').innerHTML = '<div class="yara-matches-section"><h3>🛡️ YARA Matches</h3><div class="no-matches">No YARA matches</div></div>';
+                    // Binary file analysis: unified view with search + aggregations + file info + YARA table
+                    const statsGrid = document.getElementById('statsGrid');
+                    if (statsGrid) {
+                        statsGrid.innerHTML = '';
+                        statsGrid.style.display = 'none';
+                    }
+                    buildBinaryAnalysisView(allEvents);
                 }
             } else {
                 document.body.classList.remove('file-analysis');
+                isLogAnalysisMode = false;
+                const statsGrid = document.getElementById('statsGrid');
+                if (statsGrid) statsGrid.style.display = '';
                 buildStats(computeFilteredStats());
                 
                 // Remember active section before rebuild
@@ -1946,6 +2867,11 @@
 
             updateFilterBarVisibility();
             hideLoading();
+            } catch(err) {
+                console.error('refreshAnalysisData error:', err);
+                hideLoading();
+                showError('Failed to load data: ' + (err.message || 'Unknown error'));
+            }
         }
 
         async function loadAnalysis(md5) {
@@ -1962,7 +2888,7 @@
                 if (result.success) {
                     currentMd5 = md5;
                     currentFileName = result.file_name || md5;
-                    document.title = 'OhMyPCAP - ' + currentFileName;
+                    document.title = 'SO-CRATES - ' + currentFileName;
                     const urlParams = new URLSearchParams(window.location.search);
                     urlParams.set('file', md5);
                     const newUrl = window.location.pathname + '?' + urlParams.toString();
@@ -1997,11 +2923,6 @@
                     
                     buildStats(computeFilteredStats());
                     
-                    if (allEvents.length === 0) {
-                        hideLoading();
-                        return;
-                    }
-                    
                     // Get date range from non-stats events
                     const mainEvents = allEvents.filter(e => e.event_type !== 'stats');
                     const ts = mainEvents.map(e => e.timestamp).filter(Boolean).sort();
@@ -2009,7 +2930,21 @@
                         ? ts[0].slice(0, 19)
                         : `${ts[0]?.slice(0, 19) || ''} to ${ts[ts.length-1]?.slice(0, 19) || ''}`;
                     
-                    const isFileOnly = !eventTypes.includes('alert');
+                    // Fetch analysis metadata for routing (supports ZIP uploads)
+                    const statusResp = await fetch('/api/status?md5=' + md5 + '&t=' + Date.now());
+                    const analysisStatus = await statusResp.json();
+                    const detectedType = analysisStatus.meta?.detected_type ||
+                        (currentFileName && /\.(pcap|pcapng|cap|trace)$/i.test(currentFileName) ? 'pcap' :
+                         currentFileName && /\.(evtx|json|jsonl|csv|xml|log)$/i.test(currentFileName) ? 'log' : 'binary');
+                    
+                    // Update filename to extracted inner name if available
+                    if (analysisStatus.meta?.extracted) {
+                        currentFileName = analysisStatus.meta.extracted;
+                    }
+                    
+                    const isPcap = detectedType === 'pcap';
+                    const isLogFile = detectedType === 'log';
+                    const isFileOnly = !isPcap;
                     
                     if (isFileOnly) {
                         document.body.classList.add('file-analysis');
@@ -2017,46 +2952,80 @@
                         document.body.classList.remove('file-analysis');
                     }
                     
-                    const helpText = isFileOnly
-                        ? '<span style="color: #58a6ff;">💡</span> Review the FILE INFO section for metadata and the YARA MATCHES section for any matches found by the YARA rules.'
-                        : '<span style="color: #58a6ff;">💡</span> Start by reviewing all alerts and then you can change to one of the other data types like DNS, HTTP, or TLS. Filter using the search bar, sankey diagram, or aggregation tables. When you find something interesting, you can drill into the row in the data table at the bottom. This will allow you to see the ASCII transcript and hexdump and optionally download the PCAP file for that stream.';
-                    
-                    document.getElementById('headerContent').innerHTML = `
-                        <div style="background: #161b22; padding: 12px 20px; border-radius: 8px; border: 1px solid #30363d; flex: 1;">
-                            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-                                <a href="#" onclick="showWelcome(); return false;" style="color: #58a6ff; text-decoration: none; font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <line x1="19" y1="12" x2="5" y2="12"></line>
-                                        <polyline points="12 19 5 12 12 5"></polyline>
-                                    </svg>
-                                    Back to Overview
-                                </a>
-                                <span style="color: #f0f6fc; font-weight: 600; white-space: nowrap;">📄 ${escapeHtml(currentFileName)}</span>
-                                <span style="color: #8b949e; font-size: 0.9rem; white-space: nowrap;">📁 ${currentMd5}</span>
-                                <span style="color: #8b949e; font-size: 0.9rem; white-space: nowrap;">📅 ${dateDisplay}</span>
-                            </div>
-                            <div style="color: #8b949e; font-size: 0.8rem; margin-top: 8px; text-align: center;">
-                                ${helpText}
-                            </div>
-                        </div>
-                     `;
+                    document.getElementById('appHeaderFilename').innerHTML = `📄 ${escapeHtml(currentFileName)}`;
+                    document.getElementById('appHeaderMeta').innerHTML = `
+                        <span style="color: #8b949e; font-size: 0.85rem; white-space: nowrap;">📁 ${currentMd5}</span>
+                        <span style="color: #8b949e; font-size: 0.85rem; white-space: nowrap;">📅 ${dateDisplay}</span>
+                    `;
+                    document.getElementById('appHeaderRight').innerHTML = `<button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>`;
                     showAnalysisUI();
                     updateFilterBarVisibility();
                     
                     if (isFileOnly) {
-                        // File-only analysis: render simplified UI
-                        buildFileInfoCard();
                         document.getElementById('sections').innerHTML = '';
+                        const statsGrid = document.getElementById('statsGrid');
+                        if (statsGrid) {
+                            statsGrid.innerHTML = '';
+                            statsGrid.style.display = 'none';
+                        }
                         tabDataCache = {};
-                        
-                        // Build filealerts section directly
-                        const fileAlertsEvents = allEvents.filter(e => e.event_type === 'filealerts');
-                        if (fileAlertsEvents.length > 0) {
-                            buildFileAlertCards(fileAlertsEvents);
+
+                        if (isLogFile) {
+                            isLogAnalysisMode = true;
+                            const statsGrid = document.getElementById('statsGrid');
+                            if (statsGrid) statsGrid.style.display = '';
+        
+                            (async () => {
+                                try {
+                                    const [logResp, sigmaResp] = await Promise.all([
+                                        fetch('/api/events?md5=' + currentMd5 + '&type=log&limit=' + CONFIG.MAX_QUERY_LIMIT + '&t=' + Date.now()),
+                                        fetch('/api/sigma-alerts?md5=' + currentMd5 + '&limit=5000&t=' + Date.now())
+                                    ]);
+                                    const logEvents = await logResp.json();
+                                    const sigmaAlerts = await sigmaResp.json();
+                                    tabDataCache['log'] = logEvents;
+                                    tabDataCache['sigmaalert'] = sigmaAlerts;
+                                    allEvents = logEvents;
+
+                                    const logCount = logEvents.length;
+                                    const sigmaCount = sigmaAlerts.length;
+                                    baseEventStats = { log: logCount, sigmaalert: sigmaCount };
+                                    eventStats = { ...baseEventStats };
+
+                                    eventTypes = sortEventTypes(Object.keys(baseEventStats));
+                                    buildStats(computeFilteredStats());
+                                    buildSections();
+
+                                    const defaultType = sigmaCount > 0 ? 'sigmaalert' : 'log';
+                                    document.querySelectorAll('.section').forEach(s => s.classList.add('section-hidden'));
+                                    const defaultSection = document.getElementById('section-' + defaultType);
+                                    if (defaultSection) defaultSection.classList.remove('section-hidden');
+                                    loadTabData(defaultType, null);
+
+                                    const aggContainer = document.getElementById('aggregations');
+                                    if (aggContainer) {
+                                        if (advancedMode) {
+                                            if (defaultType === 'sigmaalert') {
+                                                buildSigmaAlertAggregations(getFilteredSigmaAlerts(sigmaAlerts), 'section-sigmaalert');
+                                            } else {
+                                                buildLogAggregations(getFilteredLogEvents(logEvents), 'section-log');
+                                            }
+                                        } else {
+                                            aggContainer.innerHTML = AGG_COLLAPSED_HTML;
+                                        }
+                                    }
+                                } catch(e) {
+                                    console.error('Failed to load log analysis:', e);
+                                    document.getElementById('sections').innerHTML = '<div class="log-events-section"><h3>📋 Log Events</h3><div class="no-matches">Error loading log events</div></div>';
+                                }
+                            })();
                         } else {
-                            document.getElementById('sections').innerHTML = '<div class="yara-matches-section"><h3>🛡️ YARA Matches</h3><div class="no-matches">No YARA matches</div></div>';
+                            // Binary file analysis: unified view with search + aggregations + file info + YARA table
+                            buildBinaryAnalysisView(allEvents);
                         }
                     } else {
+    
+                        isLogAnalysisMode = false;
                         // PCAP analysis: full layout
                         buildSections();
                         if (eventTypes[0]) loadTabData(eventTypes[0]);
@@ -2082,31 +3051,42 @@
                     // Reset URL field for next analysis
                     const urlInput = document.getElementById('pcapUrl');
                     if (urlInput) {
-                        urlInput.value = 'https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip';
+                        urlInput.value = lastSampleUrl;
                     }
                 }
             } catch(err) {
                 console.error('loadAnalysis error:', err);
                 console.error('loadAnalysis error stack:', err.stack);
                 console.error('loadAnalysis error name:', err.name);
+                hideLoading();
+                showError('Failed to load analysis: ' + (err.message || 'Unknown error'));
             }
         }
         
+        function loadSampleUrl(url) {
+            closeHelpModal();
+            lastSampleUrl = url;
+            document.getElementById('pcapUrl').value = url;
+            loadFromUrl();
+        }
+
         async function loadFromUrl() {
             const urlInput = document.getElementById('pcapUrl');
             const url = urlInput.value.trim();
-            const exampleUrl = 'https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip';
             
             if (!url) {
                 showError('Please enter a URL');
                 return;
             }
             
-            showLoading('Downloading PCAP... (0s)');
+            // Remember this URL for future resets
+            lastSampleUrl = url;
+            
+            showLoading('Downloading file... (0s)');
             const downloadStart = Date.now();
             let downloadInterval = setInterval(() => {
                 const elapsedSec = Math.floor((Date.now() - downloadStart) / 1000);
-                showLoading(`Downloading PCAP... (${elapsedSec}s)`);
+                showLoading(`Downloading file... (${elapsedSec}s)`);
             }, 1000);
 
             try {
@@ -2120,11 +3100,11 @@
 
                 if (result.status === 'processing') {
                     await checkStatus(result.md5, result.phase || 'network');
-                    urlInput.value = exampleUrl;
+                    urlInput.value = lastSampleUrl;
                 } else if (result.status === 'ready') {
                     hideLoading();
                     await loadAnalysis(result.md5);
-                    urlInput.value = exampleUrl;
+                    urlInput.value = lastSampleUrl;
                 } else {
                     hideLoading();
                     showError(result.error || 'Unknown error');
@@ -2208,7 +3188,8 @@
             const phaseMessages = {
                 'network': 'Analyzing network traffic...',
                 'files': 'Analyzing files...',
-                'importing': 'Importing data...'
+                'importing': 'Importing data...',
+                'logs': 'Analyzing log file...'
             };
             
             const startTime = Date.now();
@@ -2251,7 +3232,9 @@
                     }
                     
                     if (result.status === 'processing') {
-                        currentPhase = result.phase || 'network';
+                        if (result.phase) {
+                            currentPhase = result.phase;
+                        }
                     }
                 } catch(err) {
                     console.error('Status check error:', err);
@@ -2294,7 +3277,11 @@
             document.getElementById('deleteConfirmModal').classList.remove('active');
             
             try {
-                const resp = await fetch('/api/delete-analysis?md5=' + md5);
+                const resp = await fetch('/api/delete-analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ md5: md5 }),
+                });
                 const result = await resp.json();
                 if (result.success) {
                     showWelcome();
@@ -2306,8 +3293,24 @@
             }
         }
         
-        function openReanalyzeModal(md5, name) {
-            pendingReanalyze = { md5, name };
+        async function openReanalyzeModal(md5, name) {
+            let phase = 'files';
+            try {
+                const resp = await fetch('/api/status?md5=' + md5 + '&t=' + Date.now());
+                const status = await resp.json();
+                const detectedType = status.meta?.detected_type ||
+                    (name && /\.(pcap|pcapng|cap|trace)$/i.test(name) ? 'pcap' :
+                     name && /\.(evtx|json|jsonl|csv|xml|log)$/i.test(name) ? 'log' : 'binary');
+                if (detectedType === 'log') phase = 'logs';
+                else if (detectedType === 'pcap') phase = 'network';
+            } catch(err) {
+                // Fallback to filename-based detection if status API fails
+                const isLogFile = /\.(evtx|json|jsonl|csv|xml|log)$/i.test(name);
+                const isPcapFile = /\.(pcap|pcapng|cap|trace)$/i.test(name);
+                if (isLogFile) phase = 'logs';
+                else if (isPcapFile) phase = 'network';
+            }
+            pendingReanalyze = { md5, name, phase };
             document.getElementById('reanalyzeFileName').textContent = name;
             document.getElementById('reanalyzeConfirmModal').classList.add('active');
         }
@@ -2319,7 +3322,7 @@
         
         async function confirmReanalyze() {
             if (!pendingReanalyze) return;
-            const { md5, name } = pendingReanalyze;
+            const { md5, name, phase } = pendingReanalyze;
             pendingReanalyze = null;
             closeReanalyzeModal();
             
@@ -2337,7 +3340,7 @@
                     return;
                 }
                 if (result.status === 'processing') {
-                    await checkStatus(md5);
+                    await checkStatus(md5, phase || 'network');
                 } else {
                     hideLoading();
                 }
@@ -2366,7 +3369,7 @@
                         const verData = await verResp.json();
                         const link = document.getElementById('footerVersionLink');
                         if (link && verData.version) {
-                            link.textContent = 'OhMyPCAP ' + verData.version;
+                            link.textContent = 'SO-CRATES ' + verData.version;
                         }
                     }
                 } catch(verErr) {
