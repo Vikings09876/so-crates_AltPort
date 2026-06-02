@@ -1093,7 +1093,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pcap_files = [f for f in os.listdir(dir_path) if f.endswith(PCAP_EXTENSIONS)]
         non_pcap_files = [f for f in os.listdir(dir_path)
                           if not f.endswith(PCAP_EXTENSIONS + ('.zip',))
-                          and f not in ('eve.json', 'events.db', '.phase', 'yara_matches.json', 'sigma_matches.json', 'name.txt', '.meta')]
+                          and f not in ('eve.json', 'events.db', '.phase', 'yara_matches.json', 'sigma_matches.json', 'name.txt', '.meta', 'zircolite.log', '.zircolite_events.db')]
 
         # Preserve existing .meta so we can rewrite it after cleanup
         meta_path = os.path.join(dir_path, '.meta')
@@ -1139,7 +1139,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_error(409, 'Analysis already in progress')
         elif non_pcap_files:
             file_path = os.path.join(dir_path, non_pcap_files[0])
-            for artifact in ('events.db', '.error', 'yara_matches.json', 'sigma_matches.json', '.meta'):
+            for artifact in ('events.db', '.error', 'yara_matches.json', 'sigma_matches.json', '.meta', 'zircolite.log', '.zircolite_events.db'):
                 artifact_path = os.path.join(dir_path, artifact)
                 if os.path.exists(artifact_path):
                     try:

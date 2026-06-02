@@ -2004,6 +2004,16 @@ class TestReanalyzeEndpoint(unittest.TestCase):
         self.assertIn("self._analyze_log_file", reanalyze_section,
                       'reanalyze must support log file re-analysis')
 
+    def test_reanalyze_excludes_zircolite_artifacts(self):
+        """Verify reanalyze excludes zircolite.log and .zircolite_events.db from file selection."""
+        with open(SERVER_FILE, 'r') as f:
+            content = f.read()
+        reanalyze_section = content.split("def handle_post_reanalyze(self):")[1]
+        self.assertIn("'zircolite.log'", reanalyze_section,
+                      'reanalyze must exclude zircolite.log from non_pcap_files')
+        self.assertIn("'.zircolite_events.db'", reanalyze_section,
+                      'reanalyze must exclude .zircolite_events.db from non_pcap_files')
+
     def test_reanalyze_returns_409_if_already_processing(self):
         """Verify reanalyze returns 409 when analysis is already in progress."""
         with open(SERVER_FILE, 'r') as f:
