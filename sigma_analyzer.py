@@ -26,6 +26,7 @@ SIGMA_RULES_SUBDIR = config.SIGMA_RULES_SUBDIR
 ZIRCOLITE_BUNDLED_PATH = os.path.expanduser('~/socrates-data/zircolite/zircolite.py')
 ZIRCOLITE_CONFIG_PATHS = [
     os.path.expanduser('~/socrates-data/zircolite/config/config.yaml'),
+    '/usr/local/lib/zircolite/config/config.yaml',
     '/usr/share/zircolite/config/config.yaml',
 ]
 
