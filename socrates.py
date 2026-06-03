@@ -1188,10 +1188,6 @@ def main():
     print(f"""
     ================================================================
     | {title}{padding}|
-    |                                                              |
-    | Analyze files from the web or your local collection.         |
-    |                                                              |
-    | View alerts and then slice and dice your network metadata!   |
     ================================================================
     """)
 

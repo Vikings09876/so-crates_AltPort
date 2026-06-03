@@ -2099,8 +2099,6 @@ class TestServerStartupBanner(unittest.TestCase):
         
         # Check for banner elements
         self.assertIn('Welcome to SO-CRATES', content)
-        self.assertIn('Analyze files from the web or your local collection', content)
-        self.assertIn('View alerts and then slice and dice your network metadata', content)
 
     def test_running_message_has_border(self):
         """Verify the running message is wrapped in a border matching the welcome banner"""
