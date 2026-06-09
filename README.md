@@ -1,28 +1,34 @@
-# OhMyPCAP
+# SO-CRATES
 
-A standalone web application for analyzing PCAP files using Suricata and other files using YARA. View network alerts and file alerts, browse network metadata (DNS, HTTP, TLS, flows), extract ASCII transcripts, view per-packet hexdumps, and carve individual streams — all from a single-page UI.
+A standalone web application for analyzing network traffic (PCAP), log files, and binary files. Features include Suricata network analysis, YARA binary scanning, Sigma rule detection for logs, and a single-page UI for browsing alerts, metadata, transcripts, and hexdumps.
 
 ## Screenshots
 
-The welcome screen allows you to upload a file or load a previous analysis:
+When you first connect to SO-CRATES, a window will appear with an overview of SO-CRATES:
 
-![Welcome screen](docs/images/ohmypcap-welcome.png)
+![Welcome screen](docs/images/so-crates-welcome.png)
+
+If you need to refer to this again later, you can click the ? in the upper right corner of the main screen.
+
+The main screen allows you to upload a file or load a previous analysis:
+
+![Main screen](docs/images/so-crates-main.png)
 
 After analysis, you can view network alerts, file alerts, network metadata, and extract streams:
 
-![Analysis screen](docs/images/ohmypcap-analysis.png)
+![Analysis screen](docs/images/so-crates-analysis.png)
 
 When you find something interesting, you can drill into the row in the data table at the bottom. This will allow you to see the ASCII transcript:
 
-![transcript](docs/images/ohmypcap-transcript.png)
+![transcript](docs/images/so-crates-transcript.png)
 
 You can also select the hexdump view:
 
-![hexdump](docs/images/ohmypcap-hexdump.png)
+![hexdump](docs/images/so-crates-hexdump.png)
 
 To slice and dice your data, expand the Aggregation Tables section and click on values that you want to filter for:
 
-![aggregation-filtering](docs/images/ohmypcap-aggregation-filtering.png)
+![aggregation-filtering](docs/images/so-crates-aggregation-filtering.png)
 
 ## Table of Contents
 
@@ -49,27 +55,28 @@ To slice and dice your data, expand the Aggregation Tables section and click on 
 - [Configuration](#configuration)
 - [Security](#security)
 - [Development](#development)
+- [Credits](#credits)
 - [Testing](#testing)
 - [License](#license)
 
 ## Quick Demo
 
-The fastest way to try OhMyPCAP is with our online demo:
+The fastest way to try SO-CRATES is with our online demo:
 
 https://securityonion.net/pcap
 
 Please note the following:
 - this is a cloud-based service so please do not share any sensitive files or any other sensitive info
 - free accounts are limited to 60 minutes of usage before the instance is automatically terminated
-- if you need a private or permanent instance of OhMyPCAP, then you can proceed to the next section to perform a local installation of OhMyPCAP
+- if you need a private or permanent instance of SO-CRATES, then you can proceed to the next section to perform a local installation of SO-CRATES
 
 ## Quick Installation
 
-For a private or permanent instance of OhMyPCAP, most folks will want to use our pre-built container image. We publish a container image that is compatible with both Docker and Podman. If you prefer not to use a pre-built image, then there are other options shown [below](#manual-installation).
+For a private or permanent instance of SO-CRATES, most folks will want to use our pre-built container image. We publish a container image that is compatible with both Docker and Podman. If you prefer not to use a pre-built image, then there are other options shown [below](#manual-installation).
 
 ### OhMyDebn
 
-If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + P` to automatically install and run OhMyPCAP and then you can skip to the [Usage](#usage) section below.
+If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + P` to automatically install and run SO-CRATES and then you can skip to the [Usage](#usage) section below.
 
 ### Docker
 
@@ -80,9 +87,9 @@ If you prefer `docker run`, then here are the steps you can use on Debian 13 or 
 # Install and configure docker.io
 sudo apt update && sudo apt -y install docker.io && sudo usermod -aG docker $USER
 # Create data directory
-mkdir -p ~/ohmypcap-data
-# Start OhMyPCAP
-newgrp docker -c "docker run -v ~/ohmypcap-data:/data -p 8000:8000 ghcr.io/dougburks/ohmypcap:main"
+mkdir -p ~/socrates-data
+# Start SO-CRATES
+newgrp docker -c "docker run -v ~/socrates-data:/data -p 8000:8000 ghcr.io/dougburks/so-crates:main"
 ```
 
 #### docker compose
@@ -92,10 +99,10 @@ If you prefer to use `docker compose`, then here are the steps you can use on De
 # Install and configure docker.io and docker-compose
 sudo apt update && sudo apt -y install docker.io docker-compose && sudo usermod -aG docker $USER
 # Download docker-compose.yml
-wget https://raw.githubusercontent.com/dougburks/ohmypcap/refs/heads/main/docker-compose.yml
+wget https://raw.githubusercontent.com/dougburks/so-crates/refs/heads/main/docker-compose.yml
 # Create data directory
-mkdir -p ohmypcap-data
-# Start OhMyPCAP (add the -d option to run in the background if desired)
+mkdir -p socrates-data
+# Start SO-CRATES (add the -d option to run in the background if desired)
 newgrp docker -c "docker compose up"
 ```
 
@@ -114,14 +121,14 @@ docker compose restart
 Our container image bakes in the Emerging Threats Open ruleset at build time, so it works without internet access. To copy to an isolated network, pull and save the container image using an internet-connected machine:
 
 ```bash
-docker pull ghcr.io/dougburks/ohmypcap:main
-docker save ghcr.io/dougburks/ohmypcap:main > ohmypcap.tar
+docker pull ghcr.io/dougburks/so-crates:main
+docker save ghcr.io/dougburks/so-crates:main > so-crates.tar
 ```
 
-Then transfer ohmypcap.tar to the isolated network via USB or other media. On the air-gapped machine:
+Then transfer so-crates.tar to the isolated network via USB or other media. On the air-gapped machine:
 ```bash
-docker load < ohmypcap.tar
-docker run -v ~/ohmypcap-data:/data -p 8000:8000 ghcr.io/dougburks/ohmypcap:main
+docker load < so-crates.tar
+docker run -v ~/socrates-data:/data -p 8000:8000 ghcr.io/dougburks/so-crates:main
 ```
 
 #### Build Your Own Docker Image
@@ -129,11 +136,11 @@ docker run -v ~/ohmypcap-data:/data -p 8000:8000 ghcr.io/dougburks/ohmypcap:main
 If you prefer to build your own Docker image, you can clone this github repo and then build the image:
 
 ```bash
-git clone https://github.com/dougburks/ohmypcap
-cd ohmypcap
-docker build -t ohmypcap .
-mkdir -p ~/ohmypcap-data
-docker run -v ~/ohmypcap-data:/data -p 8000:8000 ohmypcap
+git clone https://github.com/dougburks/so-crates
+cd so-crates
+docker build -t so-crates .
+mkdir -p ~/socrates-data
+docker run -v ~/socrates-data:/data -p 8000:8000 so-crates
 ```
 
 ### Podman
@@ -145,14 +152,14 @@ If you prefer Podman (rootless, daemonless), then here are the steps you can use
 # Install podman
 sudo apt update && sudo apt -y install podman
 # Create data directory
-mkdir -p ~/ohmypcap-data
-# Start OhMyPCAP
+mkdir -p ~/socrates-data
+# Start SO-CRATES
 podman run --userns=keep-id --user $(id -u):$(id -g) \
-  -v $HOME/ohmypcap-data:/data -p 8000:8000 \
-  ghcr.io/dougburks/ohmypcap:main
+  -v $HOME/socrates-data:/data -p 8000:8000 \
+  ghcr.io/dougburks/so-crates:main
 ```
 
-No `usermod` or `newgrp` is needed since Podman runs rootless by default. Use `$HOME` instead of `~` for the volume mount to avoid path expansion issues. The `--userns=keep-id --user $(id -u):$(id -g)` flags ensure files written to `~/ohmypcap-data` are owned by your host user.
+No `usermod` or `newgrp` is needed since Podman runs rootless by default. Use `$HOME` instead of `~` for the volume mount to avoid path expansion issues. The `--userns=keep-id --user $(id -u):$(id -g)` flags ensure files written to `~/socrates-data` are owned by your host user.
 
 #### podman compose
 
@@ -160,22 +167,25 @@ If you prefer to use `podman compose`, then here are the steps you can use on De
 ```bash
 # Install and configure podman and podman-compose
 sudo apt update && sudo apt -y install podman podman-compose
-# Download docker-compose.yml
-wget https://raw.githubusercontent.com/dougburks/ohmypcap/refs/heads/main/docker-compose.yml
+# Download compose files
+wget https://raw.githubusercontent.com/dougburks/so-crates/refs/heads/main/docker-compose.yml
+wget https://raw.githubusercontent.com/dougburks/so-crates/refs/heads/main/docker-compose.podman.yml
 # Create data directory
-mkdir -p ohmypcap-data
-# Start OhMyPCAP (add the -d option to run in the background if desired)
-podman compose up
+mkdir -p socrates-data
+# Start SO-CRATES (add the -d option to run in the background if desired)
+podman compose -f docker-compose.podman.yml up
 ```
+
+The `docker-compose.podman.yml` file extends `docker-compose.yml` and adds `user` and `userns_mode` flags so files written to `~/socrates-data` are owned by your host user — the same behavior as `--userns=keep-id --user $(id -u):$(id -g)` in `podman run`.
 
 To stop:
 ```bash
-podman compose down
+podman compose -f docker-compose.podman.yml down
 ```
 
 To restart:
 ```bash
-podman compose restart
+podman compose -f docker-compose.podman.yml restart
 ```
 
 #### Air-Gapped / Offline Deployment for Podman
@@ -183,15 +193,15 @@ podman compose restart
 Our container image bakes in the Emerging Threats Open ruleset at build time, so it works without internet access. To copy to an isolated network, pull and save the container image using an internet-connected machine:
 
 ```bash
-podman pull ghcr.io/dougburks/ohmypcap:main
-podman save ghcr.io/dougburks/ohmypcap:main > ohmypcap.tar
+podman pull ghcr.io/dougburks/so-crates:main
+podman save ghcr.io/dougburks/so-crates:main > so-crates.tar
 ```
 
-Then transfer ohmypcap.tar to the isolated network via USB or other media. On the air-gapped machine:
+Then transfer so-crates.tar to the isolated network via USB or other media. On the air-gapped machine:
 ```bash
-podman load < ohmypcap.tar
+podman load < so-crates.tar
 podman run --userns=keep-id --user $(id -u):$(id -g) \
-  -v $HOME/ohmypcap-data:/data -p 8000:8000 ghcr.io/dougburks/ohmypcap:main
+  -v $HOME/socrates-data:/data -p 8000:8000 ghcr.io/dougburks/so-crates:main
 ```
 
 #### Build Your Own Podman Image
@@ -199,15 +209,15 @@ podman run --userns=keep-id --user $(id -u):$(id -g) \
 If you prefer to build your own Podman image, you can clone this github repo and then build the image:
 
 ```bash
-git clone https://github.com/dougburks/ohmypcap
-cd ohmypcap
-podman build -t ohmypcap .
-mkdir -p ~/ohmypcap-data
+git clone https://github.com/dougburks/so-crates
+cd so-crates
+podman build -t so-crates .
+mkdir -p ~/socrates-data
 podman run --userns=keep-id --user $(id -u):$(id -g) \
-  -v $HOME/ohmypcap-data:/data -p 8000:8000 ohmypcap
+  -v $HOME/socrates-data:/data -p 8000:8000 so-crates
 ```
 
-OhMyPCAP will check for internet access, update its NIDS rules if online (or use the baked-in rules if offline), and then prompt you to open http://localhost:8000/ohmypcap.html in your browser.
+SO-CRATES will check for internet access, update its NIDS rules if online (or use the baked-in rules if offline), and then prompt you to open http://localhost:8000/socrates.html in your browser.
 
 To stop a `docker run` or `podman run` instance, just press Ctrl-C in the terminal window or close the terminal window altogether. For `docker compose` or `podman compose`, use `docker compose down` or `podman compose down`.
 
@@ -220,20 +230,21 @@ If you prefer to run without Docker or Podman, then you will need these prerequi
 - **suricata-update** — for downloading/updating Suricata rules (internet access required; the app will warn and continue without rules if offline)
 - **tcpdump** — for stream carving (`/api/download-stream`) and hexdump extraction (`/api/hexdump-stream`)
 - **tshark** — for ASCII transcript extraction (`/api/ascii-stream`)
-- **yara** (optional) — for scanning extracted files. If installed, OhMyPCAP automatically downloads YARA rules on first run (or uses baked-in rules in Docker). If missing, file extraction and File Alerts are skipped.
+- **yara** (optional) — for scanning extracted files. If installed, SO-CRATES automatically downloads YARA rules on first run (or uses baked-in rules in Docker). If missing, file extraction and File Alerts are skipped.
+- **Zircolite** (optional) — for Sigma rule detection on log files. SO-CRATES auto-detects if Zircolite is installed and skips log analysis if absent. The Dockerfile bakes in Zircolite v3.7.1.
 
 Once you have the prerequisites, then you can clone this github repo and run the server:
 ```bash
-python3 ohmypcap.py
+python3 socrates.py
 ```
 
-Then open http://localhost:8000/ohmypcap.html in your browser.
+Then open http://localhost:8000/socrates.html in your browser.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATA_DIR` | `~/ohmypcap-data` | Directory for analyzed files and Suricata config |
+| `DATA_DIR` | `~/socrates-data` | Directory for analyzed files and Suricata config |
 | `BIND_ADDRESS` | `127.0.0.1` | Address to bind the HTTP server to |
 | `PORT` | `8000` | HTTP server port |
 
@@ -241,25 +252,39 @@ Environment variables override the hardcoded defaults at startup.
 
 ## Usage
 
-Once you've connected to OhMyPCAP in your browser, here are some of the things you can do.
+Once you've connected to SO-CRATES in your browser, here are some of the things you can do.
 
 ### Analyze a File
 
-1. **Upload a file** — click "Choose File" and select a `.pcap`, `.pcapng`, `.cap`, `.trace`, or any other file type (or a `.zip` containing one). PCAP files get full Suricata network analysis; non-PCAP files get YARA-only scanning
+1. **Upload a file** — click "Choose File" and select a `.pcap`, `.pcapng`, `.cap`, `.trace`, `.evtx`, `.json`, `.jsonl`, `.csv`, `.xml`, `.log`, or any other file type (or a `.zip` containing one). File types are auto-detected:
+   - **PCAP** files → Suricata network analysis
+   - **Log files** (`.evtx`, `.json`, `.jsonl`, `.csv`, `.xml`, `.log`) → Zircolite Sigma rule detection
+   - **Other files** → YARA binary scanning
 2. **Load from URL** — paste a URL to a file and press **Enter** (or click **Go**). Password-protected zips from `malware-traffic-analysis.net` are auto-decrypted using the date-based password format
 3. **Reopen a previous analysis** — previously analyzed files are listed on the welcome screen
-4. **Re-analyze a previous file** — click the 🔄 button next to any previous file to delete its analysis and re-run Suricata (for PCAPs) or YARA (for non-PCAPs). Rules are updated first if internet access is available
+4. **Re-analyze a previous file** — click the 🔄 button next to any previous file to delete its analysis and re-run the pipeline. Rules are updated first if internet access is available
 
 ### Navigate Results
 
-After analysis completes, the UI displays:
+After analysis completes, the UI displays different views depending on the file type:
 
+**For PCAP files:**
 - **Stats Grid** — clickable cards showing event counts by type (Alerts, DNS, HTTP, TLS, Flows, etc.)
 - **Sankey Diagram** — expand the collapsible heading to visualize network flow relationships (Source IP → Dest IP → Dest Port)
 - **Aggregation Tables** — frequency counts for each column; click a value to filter
 - **Data Table** — sortable table with expandable detail rows showing full event JSON, ASCII transcripts, and hexdumps
 - **Search** — full-text search across all event data using SQLite FTS5 (falls back to `LIKE` if FTS5 is unavailable)
 - **Filtering** — apply filters by clicking aggregation values; filter chips show active filters; filters persist across all tabs and the Sankey diagram
+
+**For log files (`.evtx`, `.json`, `.csv`, `.xml`, `.log`):**
+- **Sigma Alerts** — detections matched by Sigma rules, with severity, MITRE techniques, and rule metadata
+- **Log Events** — all parsed log events with dynamic column discovery based on the actual data
+- **Aggregation Tables** — filterable counts for discovered fields (Channel, EventID, Image, Source IP, etc.)
+- **Search & Filtering** — same full-text search and aggregation-click filtering as PCAP mode
+
+**For binary files:**
+- **File Info** — metadata extracted from the file
+- **YARA Matches** — any rules that matched, with tags and author attribution
 
 ### Stream Analysis
 
@@ -270,22 +295,28 @@ Click any row in a data table to expand it, then:
 
 ## Data Storage
 
-All analyzed files are stored in `~/ohmypcap-data/`. Each analysis gets a subdirectory named by its MD5 hash containing:
+All analyzed files are stored in `~/socrates-data/`. Each analysis gets a subdirectory named by its MD5 hash containing:
 
 ```
-~/ohmypcap-data/
+~/socrates-data/
   suricata/
     suricata.yaml          # Copied from /etc/suricata/, rule path rewritten
     rules/
       suricata.rules       # Downloaded by suricata-update (online) or copied from baked-in image (offline/air-gapped)
     disable.conf
+  zircolite/               # Zircolite source (auto-cloned on first run if not present)
+  sigma-rules/
+    windows.json           # Pre-compiled Sigma rules for Windows logs
+    linux.json             # Pre-compiled Sigma rules for Linux logs
   <md5>/
     <original-filename>        # The uploaded file
-    eve.json                   # Suricata's JSON output
-    events.db                  # SQLite index (auto-created after analysis)
+    .meta                      # Analysis metadata (file type, extracted name, version)
+    eve.json                   # Suricata's JSON output (PCAP only)
+    events.db                  # SQLite database (alerts + events + log events + sigma alerts)
     name.txt                   # Human-readable display name
-    filestore/                 # Extracted files from Suricata file-store
-    yara_matches.json          # YARA scan results (auto-created after analysis)
+    filestore/                 # Extracted files from Suricata file-store (PCAP only)
+    yara_matches.json          # YARA scan results (binary files)
+    sigma_matches.json         # Sigma detection results (log files)
 ```
 
 ## Configuration
@@ -293,7 +324,7 @@ All analyzed files are stored in `~/ohmypcap-data/`. Each analysis gets a subdir
 | Constant | Default | Description |
 |---|---|---|
 | `PORT` | `8000` | HTTP server port |
-| `DATA_DIR` | `~/ohmypcap-data` | Root directory for analyzed files |
+| `DATA_DIR` | `~/socrates-data` | Root directory for analyzed files |
 | `MAX_UPLOAD_SIZE` | `1000 MB` | Maximum file upload size |
 | `MAX_EVE_SIZE` | `1000 MB` | Maximum eve.json size |
 | `MAX_TRANSCRIPT_SIZE` | `100,000 chars` | Maximum ASCII transcript / hexdump length |
@@ -318,16 +349,30 @@ See [docs/API.md](docs/API.md) for the full API reference.
 
 See [docs/FILTERING.md](docs/FILTERING.md) for details on the filtering system.
 
-See [docs/AGENTS.md](docs/AGENTS.md) for agent-focused guidance on maintaining OhMyPCAP, including updating vendored dependencies.
+See [docs/AGENTS.md](docs/AGENTS.md) for agent-focused guidance on maintaining SO-CRATES, including updating vendored dependencies.
+
+## Credits
+
+SO-CRATES is built on top of several excellent open-source projects:
+
+| Project | License | Purpose | Website |
+|---------|---------|---------|---------|
+| [Suricata](https://suricata.io/) | GPLv2 | Network traffic analysis and IDS | https://suricata.io/ |
+| [Zircolite](https://github.com/wagga40/Zircolite) | LGPLv3 | Sigma rule detection for log files | https://github.com/wagga40/Zircolite |
+| [YARA](https://virustotal.github.io/yara/) | BSD-3-Clause | Malware pattern matching | https://virustotal.github.io/yara/ |
+| [SigmaHQ Rules](https://github.com/SigmaHQ/sigma) | LGPLv3 (detections) | Detection logic for log analysis | https://github.com/SigmaHQ/sigma |
+| [YARA Forge](https://github.com/YARAHQ/yara-forge) | Various | Curated YARA rules | https://github.com/YARAHQ/yara-forge |
+| [Emerging Threats Open](https://rules.emergingthreats.net/) | MIT | Suricata network rules | https://rules.emergingthreats.net/ |
+| [D3](https://d3js.org/) | ISC | Sankey diagram visualization | https://d3js.org/ |
 
 ## Testing
 
 ```bash
 # Server tests
-python3 -m unittest tests.test_server -v
+python3 -m unittest tests.test_socrates_server -v
 
 # UI tests
-python3 -m unittest tests.test_ui -v
+python3 -m unittest tests.test_socrates_ui -v
 
 # All tests
 python3 -m unittest discover -v

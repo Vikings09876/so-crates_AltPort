@@ -115,3 +115,93 @@ def is_host_reachable(host, port, timeout=5):
         return True
     except OSError:
         return False
+
+
+LOG_EXTENSIONS = ('.evtx', '.json', '.jsonl', '.csv', '.xml', '.log')
+OFFICE_EXTENSIONS = ('.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+                     '.docm', '.xlsm', '.pptm', '.odt', '.ods', '.odp')
+
+
+def is_office_file_by_extension(filename):
+    """Check if filename has a known Office document extension."""
+    lower = filename.lower()
+    return any(lower.endswith(ext) for ext in OFFICE_EXTENSIONS)
+
+
+def _is_mostly_text(data):
+    """Check if data is mostly printable text (not binary)."""
+    if len(data) == 0:
+        return False
+    # Count printable ASCII and common whitespace bytes
+    text_chars = set(bytes(range(32, 127)) + b'\t\n\r')
+    text_count = sum(1 for b in data if b in text_chars)
+    return text_count / len(data) > 0.7
+
+
+def is_log_file(data):
+    """Detect if file data is a log file by magic bytes or extension.
+
+    Returns True if the data appears to be a supported log format.
+    """
+    if len(data) < 4:
+        return False
+    # Reject obvious binary formats first
+    # OLE Compound File (legacy Office .doc/.xls/.ppt)
+    if data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1':
+        return False
+    # ZIP / Office Open XML
+    if data[:4] == b'PK\x03\x04':
+        return False
+    # PDF
+    if data[:4] == b'%PDF':
+        return False
+    # ELF
+    if data[:4] == b'\x7fELF':
+        return False
+    # Windows executable / DLL
+    if data[:2] == b'MZ':
+        return False
+    # PNG
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return False
+    # JPEG
+    if data[:3] == b'\xff\xd8\xff':
+        return False
+    # GIF
+    if data[:4] in (b'GIF87a', b'GIF89a'):
+        return False
+    # BMP
+    if data[:2] == b'BM':
+        return False
+
+    # EVTX: 'ElfFile\x00'
+    if data[:8] == b'ElfFile\x00':
+        return True
+    # JSON/JSONL: starts with { or [
+    first_char = data[0:1]
+    if first_char in (b'{', b'['):
+        return True
+    # XML: starts with <?xml or < (but not HTML, not Office Open XML)
+    if data[:5] == b'<?xml':
+        # Reject Office Open XML (DOCX, XLSX, PPTX, etc.)
+        sample = data[:4096].decode('utf-8', errors='ignore')
+        if 'schemas.openxmlformats.org' in sample:
+            return False
+        return True
+    if data[:1] == b'<':
+        # Could be XML or HTML; exclude common HTML doctype declarations
+        first_line = data.split(b'\n')[0].decode('utf-8', errors='ignore').strip().lower()
+        if first_line.startswith('<!doctype html') or first_line.startswith('<html'):
+            return False
+        return True
+    # CSV: detectable by commas in first line and newline
+    first_line = data.split(b'\n')[0]
+    if b',' in first_line and len(first_line) < 4096 and _is_mostly_text(first_line):
+        return True
+    return False
+
+
+def is_log_file_by_extension(filename):
+    """Check if filename has a known log file extension."""
+    lower = filename.lower()
+    return any(lower.endswith(ext) for ext in LOG_EXTENSIONS)

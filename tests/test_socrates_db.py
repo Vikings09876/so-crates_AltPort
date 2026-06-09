@@ -196,6 +196,7 @@ class TestSQLite(unittest.TestCase):
         self.assertEqual(fa['app_proto'], 'http')
         self.assertEqual(fa['filealerts']['rule_name'], 'MALWARE_Test')
         self.assertEqual(fa['filealerts']['sha256'], 'a' * 64)
+        self.assertEqual(fa['filealerts']['author'], 'test')
         # Stats should include filealerts
         stats = db.get_event_types_sqlite(self.db_file)
         self.assertEqual(stats.get('filealerts'), 1)
@@ -294,6 +295,7 @@ class TestSQLite(unittest.TestCase):
         self.assertEqual(fa['proto'], '')
         self.assertEqual(fa['filealerts']['rule_name'], 'MALWARE_Test')
         self.assertEqual(fa['filealerts']['sha256'], 'c' * 64)
+        self.assertEqual(fa['filealerts']['author'], 'test')
 
 
 class TestSQLiteAPI(unittest.TestCase):
@@ -350,6 +352,90 @@ class TestSQLiteAPI(unittest.TestCase):
         self.assertEqual(db._build_search_terms(None), [])
         self.assertEqual(db._build_search_terms(''), [])
         self.assertEqual(db._build_search_terms([]), [])
+
+
+class TestBackwardCompatibility(unittest.TestCase):
+    """Test behavior with pre-v1.0.0 database schemas (no sigma_alerts table)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_file = os.path.join(self.tmpdir, 'events.db')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _create_old_schema(self):
+        """Create a database with only the pre-v1.0.0 events table."""
+        conn = sqlite3.connect(self.db_file)
+        conn.executescript('''
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT,
+                src_ip TEXT,
+                src_port INTEGER,
+                dest_ip TEXT,
+                dest_port INTEGER,
+                protocol TEXT,
+                app_proto TEXT,
+                json_data TEXT
+            );
+            CREATE INDEX idx_event_type ON events(event_type);
+            CREATE INDEX idx_timestamp ON events(timestamp);
+            CREATE INDEX idx_event_type_timestamp ON events(event_type, timestamp);
+        ''')
+        conn.commit()
+        conn.close()
+
+    def test_query_sigma_alerts_on_old_schema_returns_empty(self):
+        """query_sigma_alerts_sqlite must return [] when sigma_alerts table is missing."""
+        self._create_old_schema()
+        alerts = db.query_sigma_alerts_sqlite(self.db_file)
+        self.assertEqual(alerts, [])
+
+    def test_get_sigma_stats_on_old_schema_returns_empty(self):
+        """get_sigma_stats_sqlite must return {} when sigma_alerts table is missing."""
+        self._create_old_schema()
+        stats = db.get_sigma_stats_sqlite(self.db_file)
+        self.assertEqual(stats, {})
+
+    def test_query_events_on_old_schema_still_works(self):
+        """query_events_sqlite must still return events from an old-schema database."""
+        self._create_old_schema()
+        conn = sqlite3.connect(self.db_file)
+        conn.execute('''INSERT INTO events (event_type, timestamp, src_ip, src_port, dest_ip, dest_port, protocol, app_proto, json_data)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                     ('alert', '2026-01-01T00:00:00', '1.2.3.4', 1234, '5.6.7.8', 80, 'TCP', '', '{"event_type":"alert"}'))
+        conn.commit()
+        conn.close()
+        events = db.query_events_sqlite(self.db_file)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['event_type'], 'alert')
+
+    def test_insert_sigma_alerts_lazily_creates_table(self):
+        """insert_sigma_alerts must create the missing sigma_alerts table on first call."""
+        self._create_old_schema()
+        db.insert_sigma_alerts(self.db_file, [{
+            'timestamp': '2026-01-01T00:00:00',
+            'rule_title': 'Test Rule',
+            'rule_id': 'r1',
+            'severity': 'high',
+            'level': 'high',
+            'logsource': 'windows',
+            'tags': '[]',
+            'mitre_techniques': '[]',
+            'original_log': '{}',
+            'json_data': '{}',
+        }])
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sigma_alerts'")
+        self.assertIsNotNone(cursor.fetchone(), 'sigma_alerts table must be created lazily')
+        conn.close()
+
+        # Verify query works after lazy creation
+        alerts = db.query_sigma_alerts_sqlite(self.db_file)
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]['rule_title'], 'Test Rule')
 
 
 if __name__ == '__main__':

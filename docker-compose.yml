@@ -1,11 +1,11 @@
 services:
-  ohmypcap:
-    image: ghcr.io/dougburks/ohmypcap:main
-    container_name: ohmypcap
+  so-crates:
+    image: ghcr.io/dougburks/so-crates:main
+    container_name: so-crates
     ports:
       - "8000:8000"
     volumes:
       - type: bind
-        source: ./ohmypcap-data
+        source: ./socrates-data
         target: /data
     restart: unless-stopped

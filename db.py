@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SQLite database layer for OhMyPCAP."""
+"""SQLite database layer for SO-CRATES."""
 
 import json
 import os
@@ -34,6 +34,23 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_event_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_event_type_timestamp ON events(event_type, timestamp);
+
+CREATE TABLE IF NOT EXISTS sigma_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT,
+    rule_title TEXT,
+    rule_id TEXT,
+    severity TEXT,
+    level TEXT,
+    logsource TEXT,
+    tags TEXT,
+    mitre_techniques TEXT,
+    original_log TEXT,
+    json_data TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sigma_severity ON sigma_alerts(severity);
+CREATE INDEX IF NOT EXISTS idx_sigma_timestamp ON sigma_alerts(timestamp);
+CREATE INDEX IF NOT EXISTS idx_sigma_rule_id ON sigma_alerts(rule_id);
 
 '''
 
@@ -110,7 +127,7 @@ def _insert_event(conn, event_dict, has_fts):
             event_dict.get('src_port', 0),
             event_dict.get('dest_ip', ''),
             event_dict.get('dest_port', 0),
-            event_dict.get('proto', ''),
+            event_dict.get('proto') or event_dict.get('protocol', ''),
             event_dict.get('app_proto', ''),
             line,
         )
@@ -171,6 +188,7 @@ def create_sqlite_db(db_path, eve_file):
                         'filealerts': {
                             'rule_name': match.get('rule_name', ''),
                             'tags': match.get('tags', []),
+                            'author': match.get('meta', {}).get('author', ''),
                             'sha256': sha256,
                             'file_id': match.get('file_id', ''),
                             'strings': match.get('strings', []),
@@ -268,6 +286,7 @@ def create_file_analysis_db(db_path, file_path, yara_matches, file_md5, file_sha
                 'filealerts': {
                     'rule_name': match.get('rule_name', ''),
                     'tags': match.get('tags', []),
+                    'author': match.get('meta', {}).get('author', ''),
                     'sha256': file_sha256,
                     'file_id': '',
                     'strings': match.get('strings', []),
@@ -343,7 +362,13 @@ def query_events_sqlite(db_path, event_type=None, offset=0, limit=1000, q=None):
 
         try:
             cursor = conn.execute(sql, params)
-            return [json.loads(row['json_data']) for row in cursor.fetchall()]
+            results = []
+            for row in cursor.fetchall():
+                try:
+                    results.append(json.loads(row['json_data']))
+                except (json.JSONDecodeError, TypeError):
+                    results.append({})
+            return results
         except sqlite3.OperationalError:
             return []
 
@@ -405,6 +430,161 @@ def get_event_types_sqlite(db_path, q=None):
             return {row['event_type']: row['cnt'] for row in cursor.fetchall()}
         except sqlite3.OperationalError:
             return {}
+
+
+def _has_sigma_alerts_table(conn):
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sigma_alerts'")
+    return cursor.fetchone() is not None
+
+
+def insert_sigma_alerts(db_path, alerts):
+    """Insert Sigma alert dicts into the sigma_alerts table."""
+    with _db_connection(db_path) as conn:
+        conn.executescript(SQLITE_SCHEMA)
+        for alert in alerts:
+            conn.execute(
+                '''INSERT INTO sigma_alerts
+                   (timestamp, rule_title, rule_id, severity, level, logsource, tags, mitre_techniques, original_log, json_data)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    alert.get('timestamp', ''),
+                    alert.get('rule_title', ''),
+                    alert.get('rule_id', ''),
+                    alert.get('severity', ''),
+                    alert.get('level', ''),
+                    alert.get('logsource', ''),
+                    json.dumps(alert.get('tags', [])),
+                    json.dumps(alert.get('mitre_techniques', [])),
+                    alert.get('original_log', ''),
+                    alert.get('json_data', ''),
+                )
+            )
+        conn.commit()
+
+
+def query_sigma_alerts_sqlite(db_path, offset=0, limit=1000, q=None, severity=None):
+    with _db_connection(db_path) as conn:
+        if not _has_sigma_alerts_table(conn):
+            return []
+
+        conn.row_factory = sqlite3.Row
+        conditions = []
+        params = []
+
+        if severity:
+            conditions.append('severity = ?')
+            params.append(severity)
+
+        terms = _build_search_terms(q)
+        if terms:
+            for term in terms:
+                conditions.append(
+                    "(rule_title LIKE ? ESCAPE '\\' OR rule_id LIKE ? ESCAPE '\\' OR json_data LIKE ? ESCAPE '\\' OR original_log LIKE ? ESCAPE '\\')"
+                )
+                like = _sanitize_like(term)
+                params.extend([like, like, like, like])
+
+        sql = 'SELECT * FROM sigma_alerts'
+        if conditions:
+            sql += ' WHERE ' + ' AND '.join(conditions)
+        sql += ' ORDER BY CASE severity WHEN \'critical\' THEN 1 WHEN \'high\' THEN 2 WHEN \'medium\' THEN 3 WHEN \'low\' THEN 4 ELSE 5 END, timestamp DESC LIMIT ? OFFSET ?'
+        params = list(params) + [limit, offset]
+
+        try:
+            cursor = conn.execute(sql, params)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            return []
+
+
+def get_sigma_alert_count_sqlite(db_path, q=None, severity=None):
+    with _db_connection(db_path) as conn:
+        if not _has_sigma_alerts_table(conn):
+            return 0
+
+        conditions = []
+        params = []
+
+        if severity:
+            conditions.append('severity = ?')
+            params.append(severity)
+
+        terms = _build_search_terms(q)
+        if terms:
+            for term in terms:
+                conditions.append(
+                    "(rule_title LIKE ? ESCAPE '\\' OR rule_id LIKE ? ESCAPE '\\' OR json_data LIKE ? ESCAPE '\\' OR original_log LIKE ? ESCAPE '\\')"
+                )
+                like = _sanitize_like(term)
+                params.extend([like, like, like, like])
+
+        sql = 'SELECT COUNT(*) FROM sigma_alerts'
+        if conditions:
+            sql += ' WHERE ' + ' AND '.join(conditions)
+
+        try:
+            cursor = conn.execute(sql, params)
+            return cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            return 0
+
+
+def import_log_events(db_path, events):
+    """Bulk import log events into the events table.
+
+    Args:
+        db_path: Path to the SO-CRATES events.db.
+        events: List of event dicts with keys:
+            event_type, timestamp, src_ip, src_port, dest_ip, dest_port,
+            protocol, app_proto, json_data
+    """
+    with _db_connection(db_path) as conn:
+        has_fts = _init_db(conn)
+        for event in events:
+            _insert_event(conn, event, has_fts)
+        conn.commit()
+
+
+def get_sigma_stats_sqlite(db_path):
+    with _db_connection(db_path) as conn:
+        if not _has_sigma_alerts_table(conn):
+            return {}
+
+        conn.row_factory = sqlite3.Row
+        stats = {}
+
+        # Count by severity
+        try:
+            cursor = conn.execute(
+                "SELECT severity, COUNT(*) as cnt FROM sigma_alerts GROUP BY severity ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END"
+            )
+            stats['by_severity'] = {row['severity']: row['cnt'] for row in cursor.fetchall()}
+        except sqlite3.OperationalError:
+            stats['by_severity'] = {}
+
+        # Total count
+        try:
+            cursor = conn.execute('SELECT COUNT(*) FROM sigma_alerts')
+            stats['total'] = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            stats['total'] = 0
+
+        # Unique MITRE techniques
+        try:
+            cursor = conn.execute("SELECT mitre_techniques FROM sigma_alerts WHERE mitre_techniques != '[]'")
+            techniques = set()
+            for row in cursor.fetchall():
+                try:
+                    techs = json.loads(row[0])
+                    for t in techs:
+                        techniques.add(t)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            stats['mitre_techniques'] = sorted(techniques)
+        except sqlite3.OperationalError:
+            stats['mitre_techniques'] = []
+
+        return stats
 
 
 

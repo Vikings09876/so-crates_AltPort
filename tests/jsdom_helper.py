@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Helper for running JavaScript tests in a JSDOM environment.
 
-This module provides a way to execute ohmypcap.js functions in a Node.js/JSDOM
+This module provides a way to execute socrates.js functions in a Node.js/JSDOM
 context from Python unit tests, enabling behavioral testing instead of
 brittle string-grep tests.
 """
@@ -13,9 +13,9 @@ import tempfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-HTML_PATH = os.path.join(PROJECT_ROOT, 'ohmypcap.html')
-JS_PATH = os.path.join(PROJECT_ROOT, 'static', 'ohmypcap.js')
-CSS_PATH = os.path.join(PROJECT_ROOT, 'static', 'ohmypcap.css')
+HTML_PATH = os.path.join(PROJECT_ROOT, 'socrates.html')
+JS_PATH = os.path.join(PROJECT_ROOT, 'static', 'socrates.js')
+CSS_PATH = os.path.join(PROJECT_ROOT, 'static', 'socrates.css')
 NODE_MODULES = os.path.join(PROJECT_ROOT, 'node_modules')
 
 
@@ -31,7 +31,7 @@ def load_files():
 
 
 def run_jsdom_test(js_test_code, setup_code=''):
-    """Execute JS test code in a JSDOM environment with ohmypcap loaded.
+    """Execute JS test code in a JSDOM environment with socrates loaded.
 
     Args:
         js_test_code: The JS code to evaluate. Must assign its result to window.__jsdom_result.

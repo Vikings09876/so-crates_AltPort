@@ -7,9 +7,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
-JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'ohmypcap.js')
-CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'ohmypcap.css')
+HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.html')
+JS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'socrates.js')
+CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'socrates.css')
 
 with open(HTML_PATH, 'r') as f:
     HTML_CONTENT = f.read()
@@ -26,7 +26,7 @@ class TestHTMLStructure(unittest.TestCase):
 
     def test_script_tags_closed(self):
         """Verify script tags are properly closed"""
-        self.assertIn('<script src="static/ohmypcap.js"></script>', HTML_CONTENT)
+        self.assertIn('<script src="static/socrates.js"></script>', HTML_CONTENT)
         # Count occurrences (including script tags with src attributes)
         open_count = HTML_CONTENT.count('<script>') + HTML_CONTENT.count('<script ')
         close_count = HTML_CONTENT.count('</script>')
@@ -37,7 +37,7 @@ class TestHTMLStructure(unittest.TestCase):
         self.assertGreater(len(CSS_CONTENT), 1000, 'CSS file appears truncated')
 
     def test_html_references_css(self):
-        self.assertIn('<link rel="stylesheet" href="static/ohmypcap.css">', HTML_CONTENT)
+        self.assertIn('<link rel="stylesheet" href="static/socrates.css">', HTML_CONTENT)
 
     def test_no_inline_style_block(self):
         """HTML must not contain inline <style> blocks after split."""
@@ -50,9 +50,9 @@ class TestHTMLStructure(unittest.TestCase):
         self.assertIsNone(inline_script, 'Inline <script> block found in HTML')
 
     def test_static_files_exist(self):
-        """static/ohmypcap.css and static/ohmypcap.js must exist on disk."""
-        self.assertTrue(os.path.exists(CSS_PATH), 'static/ohmypcap.css must exist')
-        self.assertTrue(os.path.exists(JS_PATH), 'static/ohmypcap.js must exist')
+        """static/socrates.css and static/socrates.js must exist on disk."""
+        self.assertTrue(os.path.exists(CSS_PATH), 'static/socrates.css must exist')
+        self.assertTrue(os.path.exists(JS_PATH), 'static/socrates.js must exist')
 
     def test_valid_doctype(self):
         self.assertTrue(HTML_CONTENT.startswith('<!DOCTYPE html>'))
@@ -64,7 +64,7 @@ class TestHTMLStructure(unittest.TestCase):
         self.assertIn('viewport', HTML_CONTENT)
 
     def test_has_title(self):
-        self.assertIn('OhMyPCAP - Welcome', HTML_CONTENT)
+        self.assertIn('SO-CRATES - Welcome', HTML_CONTENT)
 
     def test_has_container(self):
         self.assertIn('class="container"', HTML_CONTENT)
@@ -81,14 +81,37 @@ class TestHTMLStructure(unittest.TestCase):
     def test_has_header(self):
         self.assertIn('id="mainHeader"', HTML_CONTENT)
 
-    def test_has_stream_modal(self):
-        self.assertIn('id="streamModal"', HTML_CONTENT)
+    def test_has_help_modal(self):
+        self.assertIn('id="helpModal"', HTML_CONTENT)
+
+    def test_has_file_info_container(self):
+        self.assertIn('id="fileInfoContainer"', HTML_CONTENT)
+
+    def test_has_app_header_meta(self):
+        self.assertIn('id="appHeaderMeta"', HTML_CONTENT)
+
+    def test_has_app_header_filename(self):
+        self.assertIn('id="appHeaderFilename"', HTML_CONTENT)
+
+    def test_magnifying_glass_is_hyperlink(self):
+        """The magnifying glass SVG in the header must be wrapped in an <a> tag linking to showWelcome()."""
+        # Find the app-header-left section
+        header_start = HTML_CONTENT.find('class="app-header-left"')
+        self.assertGreater(header_start, -1, 'app-header-left must exist')
+        header_end = HTML_CONTENT.find('</div>', header_start)
+        header_section = HTML_CONTENT[header_start:header_end]
+        # Must contain an <a> wrapping an <svg>
+        self.assertIn('<a', header_section, 'app-header-left must contain an <a> tag')
+        self.assertIn('<svg', header_section, 'app-header-left must contain an <svg>')
+        # The <a> must come before the SVG (i.e., wraps it)
+        a_pos = header_section.find('<a')
+        svg_pos = header_section.find('<svg')
+        self.assertLess(a_pos, svg_pos, '<a> must wrap <svg> in app-header-left')
+        # The <a> must have onclick="showWelcome()"
+        self.assertIn('showWelcome()', header_section, '<a> must call showWelcome()')
 
     def test_has_loading_modal(self):
         self.assertIn('id="loadingModal"', HTML_CONTENT)
-
-    def test_has_modal_close_button(self):
-        self.assertIn('closeModal()', HTML_CONTENT)
 
     def test_has_spinner_animation(self):
         self.assertIn('@keyframes spin', CSS_CONTENT)
@@ -214,14 +237,17 @@ class TestJavaScriptFunctions(unittest.TestCase):
     def test_has_sort_table(self):
         self.assertIn('function sortTable', JS_CONTENT)
 
-    def test_has_render_table(self):
-        self.assertIn('function renderTable', JS_CONTENT)
-
-    def test_has_close_modal(self):
-        self.assertIn('function closeModal', JS_CONTENT)
-
     def test_has_show_loading(self):
         self.assertIn('function showLoading', JS_CONTENT)
+
+    def test_has_question_hotkey(self):
+        """Question mark hotkey must trigger showHelpModal outside input fields."""
+        # Verify the keydown handler checks for '?' key
+        self.assertIn("e.key === '?'", JS_CONTENT,
+                      'JS must listen for ? key to show help modal')
+        # Verify it guards against input/textarea targets
+        self.assertIn("e.target.tagName !== 'INPUT'", JS_CONTENT,
+                      'JS must not trigger ? hotkey when typing in input fields')
 
     def test_has_hide_loading(self):
         self.assertIn('function hideLoading', JS_CONTENT)
@@ -261,6 +287,21 @@ class TestJavaScriptFunctions(unittest.TestCase):
 
     def test_has_showWelcomeUI(self):
         self.assertIn('function showWelcomeUI', JS_CONTENT)
+
+    def test_has_showHelpModal(self):
+        self.assertIn('function showHelpModal', JS_CONTENT)
+
+    def test_has_closeHelpModal(self):
+        self.assertIn('function closeHelpModal', JS_CONTENT)
+
+    def test_has_shouldShowHelpModal(self):
+        self.assertIn('function shouldShowHelpModal', JS_CONTENT)
+
+    def test_has_handleHelpBackdropClick(self):
+        self.assertIn('function handleHelpBackdropClick', JS_CONTENT)
+
+    def test_has_welcomeHelpContent(self):
+        self.assertIn('const WELCOME_HELP_CONTENT', JS_CONTENT)
 
     def test_has_showAnalysisUI(self):
         self.assertIn('function showAnalysisUI', JS_CONTENT)
@@ -349,16 +390,16 @@ class TestCardOrder(unittest.TestCase):
 
     def test_apply_filter_calls_both_section_and_aggregation(self):
         """Verify applyFilter builds both section and aggregation when filtering"""
-        self.assertIn("buildSection(eventType, sections[eventType])", JS_CONTENT,
-                      "applyFilter should call buildSection")
+        self.assertIn("function applyFilters(", JS_CONTENT,
+                      "applyFilter should delegate to applyFilters")
         applyFunc = JS_CONTENT.split('function applyFilter(')[1].split('function clearFilter')[0]
         self.assertIn("applyFilters", applyFunc,
                       "applyFilter should delegate to applyFilters")
         refreshFunc = JS_CONTENT.split('function refreshCurrentView')[1].split('function ')[0]
         self.assertIn("buildAggregationsSection(eventType, filtered)", refreshFunc,
                       "refreshCurrentView should call buildAggregationsSection with filtered events")
-        self.assertIn("updateSankeyDiagram()", refreshFunc,
-                      "refreshCurrentView should update Sankey diagram")
+        self.assertIn("buildSection(eventType, events)", refreshFunc,
+                      "refreshCurrentView should call buildSection with events")
 
 
 class TestJavaScriptDataStructures(unittest.TestCase):
@@ -414,8 +455,13 @@ class TestJavaScriptLogic(unittest.TestCase):
 
     def test_format_event_handles_all_types(self):
         event_types = ['alert', 'dns', 'http', 'tls', 'flow', 'ftp', 'anomaly', 'fileinfo', 'stats']
+        # formatEvent now uses EVENT_RENDERERS to dispatch to type-specific renderers
+        self.assertIn('const renderer = EVENT_RENDERERS[e.event_type]', JS_CONTENT,
+                      'formatEvent must use EVENT_RENDERERS for type dispatch')
         for etype in event_types:
-            self.assertIn(f"event_type === '{etype}'", JS_CONTENT)
+            # Keys may be quoted or unquoted in JS object literal
+            found = f"'{etype}':" in JS_CONTENT or f'{etype}:' in JS_CONTENT
+            self.assertTrue(found, f'EVENT_RENDERERS must handle event type {etype}')
 
     def test_get_columns_returns_correct_columns(self):
         self.assertIn("case 'alert':", JS_CONTENT)
@@ -450,11 +496,12 @@ class TestAPIIntegration(unittest.TestCase):
             '/api/upload',
             '/api/load-url',
             '/api/check-status',
-            '/api/ascii-stream',
-            '/api/download-stream',
         ]
         for endpoint in endpoints:
             self.assertIn(endpoint, JS_CONTENT)
+        # ascii-stream and download-stream are built dynamically via buildStreamUrl
+        self.assertIn("buildStreamUrl('ascii-stream'", JS_CONTENT)
+        self.assertIn("buildStreamUrl('download-stream'", JS_CONTENT)
 
     def test_uses_fetch_api(self):
         self.assertIn('fetch(', JS_CONTENT)
@@ -494,21 +541,29 @@ class TestUXFeatures(unittest.TestCase):
         self.assertIn('id="errorModal"', HTML_CONTENT)
 
     def test_back_navigation(self):
-        self.assertIn('Back to Overview', JS_CONTENT)
+        """Back navigation must exist via the app header logo link."""
+        self.assertIn("showWelcome(); return false;", HTML_CONTENT,
+                      'App header logo must link back to welcome screen')
 
     def test_header_has_no_separators(self):
         """Header items must not have any separators (pipes or borders) for clean responsive wrapping."""
-        header_section = JS_CONTENT.split("getElementById('headerContent').innerHTML")[1].split("`;")[0]
-        self.assertNotIn('color: #30363d;"|"', header_section,
+        app_header_section = JS_CONTENT.split("getElementById('appHeaderRight').innerHTML")[1].split("`;")[0]
+        self.assertNotIn('color: #30363d;"|"', app_header_section,
                          'Header must not use literal pipe characters as separators')
         self.assertNotIn('.header-item', CSS_CONTENT,
-                         'Header must not use CSS border separators')
+                          'Header must not use CSS border separators')
 
     def test_header_has_file_icon(self):
         """Header filename must have a file icon prefix."""
-        header_section = JS_CONTENT.split("getElementById('headerContent').innerHTML")[1].split("`;")[0]
-        self.assertIn('📄 ${currentFileName}', header_section,
-                      'Header filename must have 📄 icon')
+        self.assertIn('📄', JS_CONTENT,
+                      'App header filename must have 📄 icon')
+        self.assertIn('currentFileName', JS_CONTENT,
+                      'App header must display currentFileName')
+
+    def test_header_meta_class_exists(self):
+        """Header meta container CSS class must exist for grouping hash/date."""
+        self.assertIn('.app-header-meta', CSS_CONTENT,
+                      'CSS must define .app-header-meta for hash/date grouping')
 
     def test_file_input_accepts_all_files(self):
         """File input must not restrict file types — any file can be uploaded."""
@@ -664,7 +719,7 @@ class TestUXFeatures(unittest.TestCase):
         self.assertIn('malware-traffic-analysis.net', JS_CONTENT)
 
     def test_feature_comparison_table(self):
-        self.assertIn('OhMyPCAP', JS_CONTENT)
+        self.assertIn('SO-CRATES', JS_CONTENT)
         self.assertIn('Security Onion', JS_CONTENT)
 
     def test_feature_comparison_table_links(self):
@@ -955,7 +1010,7 @@ class TestAggregationTables(unittest.TestCase):
         self.assertEqual(result['anomalyMessage'], 'Malformed packet')
 
     def test_agg_tables_have_click_handlers(self):
-        self.assertIn("onclick=\"applyFilter('${sectionId}', '${col.replace", JS_CONTENT)
+        self.assertIn("onclick=\"applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(val)}')\"", JS_CONTENT)
 
     def test_agg_tables_no_bar_charts(self):
         self.assertNotIn('.agg-bar', CSS_CONTENT)
@@ -1022,7 +1077,7 @@ class TestFiltering(unittest.TestCase):
         self.assertIn('.footer', CSS_CONTENT)
 
     def test_has_footer_with_version_placeholder(self):
-        self.assertIn('OhMyPCAP</a>', HTML_CONTENT)
+        self.assertIn('SO-CRATES</a>', HTML_CONTENT)
         self.assertIn('id="footerVersionLink"', HTML_CONTENT)
 
     def test_has_footer_with_copyright(self):
@@ -1114,7 +1169,7 @@ class TestPerformance(unittest.TestCase):
         self.assertIn('!pre.innerHTML', JS_CONTENT)
 
     def test_truncates_large_streams(self):
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.py'), 'r') as f:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.py'), 'r') as f:
             server_content = f.read()
         self.assertIn('truncated', server_content)
 
@@ -1127,7 +1182,7 @@ class TestAdvancedToggle(unittest.TestCase):
         self.assertIn('toggleAggregations()', JS_CONTENT)
 
     def test_has_advanced_mode_js_variable(self):
-        self.assertIn('let advancedMode', JS_CONTENT)
+        self.assertIn('var advancedMode', JS_CONTENT)
 
     def test_aggregations_collapsed_by_default(self):
         self.assertIn("▸ Aggregation Tables", JS_CONTENT)
@@ -1167,9 +1222,9 @@ class TestFilterOnclickQuoting(unittest.TestCase):
                 f'clearFilter onclick uses JSON.stringify which breaks in double-quoted onclick: {match[:80]}')
 
     def test_apply_filter_uses_single_quoted_args(self):
-        """applyFilter onclick should use single-quoted string arguments"""
-        self.assertRegex(JS_CONTENT, r"onclick=\"applyFilter\('[^']+',\s*'\$\{[^}]+\}',\s*'\$\{[^}]+\}'\)\"",
-            'applyFilter onclick should use single-quoted template expressions')
+        """applyFilter onclick should use single-quoted string arguments via escapeJsString"""
+        self.assertRegex(JS_CONTENT, r"onclick=\"applyFilter\('[^']+',\s*'\$\{escapeJsString\([^)]+\)\}',\s*'\$\{escapeJsString\([^)]+\)\}'\)\"",
+            'applyFilter onclick should use single-quoted escapeJsString expressions')
 
     def test_clear_filter_uses_single_quoted_args(self):
         """clearFilter onclick should use single-quoted string argument"""
@@ -1177,9 +1232,9 @@ class TestFilterOnclickQuoting(unittest.TestCase):
             'clearFilter onclick should use single-quoted template expression')
 
     def test_agg_row_onclick_has_escaped_quotes(self):
-        """agg-row onclick handlers must escape single quotes in values"""
-        self.assertRegex(JS_CONTENT, r"replace\(/'/g,\s*\"\\\\'\"\)",
-            'onclick handlers must escape single quotes with replace')
+        """agg-row onclick handlers must escape single quotes in values via escapeJsString"""
+        self.assertIn('escapeJsString', JS_CONTENT,
+            'onclick handlers must use escapeJsString for JS-context escaping')
 
     def test_no_bare_json_stringify_in_onclick_templates(self):
         """No template literal should embed JSON.stringify directly into an onclick attribute"""
@@ -1254,6 +1309,58 @@ class TestAdvancedModeFilterBar(unittest.TestCase):
         self.assertIn("delete currentFilters[columnName]", JS_CONTENT)
         self.assertNotIn("delete currentFilters[sectionId]", JS_CONTENT)
 
+    def test_applyFilters_calls_updateFilterBarVisibility(self):
+        """applyFilters must call updateFilterBarVisibility and rebuild stats after refreshing the view."""
+        func = JS_CONTENT.split('function applyFilters(')[1].split('function applyFilter(')[0]
+        self.assertIn('refreshCurrentView(sectionId, eventType)', func,
+                      'applyFilters must call refreshCurrentView')
+        self.assertIn('updateFilterBarVisibility()', func,
+                      'applyFilters must call updateFilterBarVisibility after refreshCurrentView')
+        self.assertIn('buildStats(computeFilteredStats())', func,
+                      'applyFilters must rebuild stat card counts after applying filters')
+
+    def test_applyFilters_binary_path_calls_updateFilterBarVisibility(self):
+        """applyFilters must update UI in the binary analysis early-return path."""
+        func = JS_CONTENT.split('function applyFilters(')[1].split('function applyFilter(')[0]
+        self.assertIn("if (sectionId === 'section-binary')", func,
+                      'applyFilters must check for section-binary')
+        self.assertIn('updateFilterBarVisibility()', func,
+                      'applyFilters must call updateFilterBarVisibility')
+        self.assertIn('buildStats(computeFilteredStats())', func,
+                      'applyFilters must rebuild stat card counts in binary path')
+        # Verify calls appear before return in the binary branch
+        binary_branch = func.split("if (sectionId === 'section-binary')")[1].split('return;')[0]
+        self.assertIn('updateFilterBarVisibility()', binary_branch,
+            'applyFilters binary path must call updateFilterBarVisibility before return')
+        self.assertIn('buildStats(computeFilteredStats())', binary_branch,
+            'applyFilters binary path must rebuild stats before return')
+
+    def test_clearFilter_calls_updateFilterBarVisibility(self):
+        """clearFilter must update UI after refreshing the view."""
+        func = JS_CONTENT.split('function clearFilter(')[1].split('async function clearAllFilters(')[0]
+        self.assertIn('refreshCurrentView(visibleSection.id, eventType)', func,
+                      'clearFilter must call refreshCurrentView')
+        self.assertIn('updateFilterBarVisibility()', func,
+                      'clearFilter must call updateFilterBarVisibility after refreshCurrentView')
+        self.assertIn('buildStats(computeFilteredStats())', func,
+                      'clearFilter must rebuild stat card counts after clearing filters')
+
+    def test_clearFilter_binary_path_calls_updateFilterBarVisibility(self):
+        """clearFilter must update UI in the binary analysis early-return path."""
+        func = JS_CONTENT.split('function clearFilter(')[1].split('async function clearAllFilters(')[0]
+        self.assertIn('buildBinaryAnalysisView(allEvents)', func,
+                      'clearFilter must call buildBinaryAnalysisView for binary mode')
+        self.assertIn('updateFilterBarVisibility()', func,
+                      'clearFilter must call updateFilterBarVisibility')
+        self.assertIn('buildStats(computeFilteredStats())', func,
+                      'clearFilter must rebuild stat card counts in binary path')
+        # Verify calls appear before return in the binary branch
+        binary_branch = func.split('buildBinaryAnalysisView(allEvents)')[1].split('return;')[0]
+        self.assertIn('updateFilterBarVisibility()', binary_branch,
+            'clearFilter binary path must call updateFilterBarVisibility before return')
+        self.assertIn('buildStats(computeFilteredStats())', binary_branch,
+            'clearFilter binary path must rebuild stats before return')
+
     def test_clearAllFilters_resets_global_filters(self):
         """clearAllFilters must reset currentFilters to empty object"""
         self.assertIn("currentFilters = {}", JS_CONTENT)
@@ -1285,6 +1392,18 @@ class TestAdvancedModeFilterBar(unittest.TestCase):
         not currentFilters[sectionId]. Functions checked: buildSection, buildAllEvents,
         buildAggregationsSection, buildAggregationsSectionAll, getFilteredEvents."""
         self.assertNotIn("const filters = currentFilters[sectionId]", JS_CONTENT)
+
+    def test_buildStats_shows_count_over_total_when_filtered(self):
+        """buildStats must display 'count / total' when filters are active."""
+        func = JS_CONTENT.split('function buildStats(')[1].split('function buildSections(')[0]
+        self.assertIn('${s.count} / ${s.total}', func,
+                      'buildStats must show filtered count over total when hasFilters is true')
+
+    def test_buildStats_shows_count_only_when_unfiltered(self):
+        """buildStats must display just the count when no filters are active."""
+        func = JS_CONTENT.split('function buildStats(')[1].split('function buildSections(')[0]
+        self.assertIn('String(s.count)', func,
+                      'buildStats must show only count when hasFilters is false')
 
 
 class TestXSSPrevention(unittest.TestCase):
@@ -1364,8 +1483,8 @@ class TestXSSPrevention(unittest.TestCase):
 
     def test_alert_details_shows_rule(self):
         """Alert detail panel must include a Rule row with monospace styling."""
-        func_body = self._get_function_body('formatEvent')
-        self.assertIn("alert?.rule", func_body, 'formatEvent must reference alert.rule')
+        func_body = self._get_function_body('renderAlertDetails')
+        self.assertIn("alert?.rule", func_body, 'renderAlertDetails must reference alert.rule')
         self.assertIn('white-space: pre-wrap', JS_CONTENT, 'Rule text must wrap with pre-wrap')
         self.assertIn('overflow-wrap: break-word', JS_CONTENT, 'Rule text must wrap with overflow-wrap')
         self.assertIn('class="mono"', JS_CONTENT, 'Rule text must use monospace font')
@@ -1373,7 +1492,8 @@ class TestXSSPrevention(unittest.TestCase):
 
 class TestURLParameterEncoding(unittest.TestCase):
     def test_downloadPcap_uses_encodeURIComponent(self):
-        """downloadPcap must encode URL parameters to prevent injection."""
+        """downloadPcap must encode URL parameters to prevent injection.
+        Encoding is delegated to buildStreamUrl helper."""
         func_match = re.search(r'function downloadPcap\(', JS_CONTENT)
         self.assertIsNotNone(func_match)
         start = func_match.start()
@@ -1390,15 +1510,34 @@ class TestURLParameterEncoding(unittest.TestCase):
             if found_open and brace_count == 0:
                 break
         func_body = JS_CONTENT[start:pos]
-        self.assertIn("encodeURIComponent(src)", func_body)
-        self.assertIn("encodeURIComponent(sport)", func_body)
-        self.assertIn("encodeURIComponent(dst)", func_body)
-        self.assertIn("encodeURIComponent(dport)", func_body)
-        self.assertIn("encodeURIComponent(currentMd5)", func_body)
+        self.assertIn("buildStreamUrl('download-stream'", func_body,
+                      'downloadPcap must delegate URL building to buildStreamUrl')
 
     def test_loadAsciiTranscript_uses_encodeURIComponent(self):
-        """loadAsciiTranscript must encode URL parameters."""
+        """loadAsciiTranscript must encode URL parameters.
+        Encoding is delegated to buildStreamUrl helper."""
         func_match = re.search(r'function loadAsciiTranscript\(', JS_CONTENT)
+        self.assertIsNotNone(func_match)
+        start = func_match.start()
+        brace_count = 0
+        pos = start
+        found_open = False
+        while pos < len(JS_CONTENT):
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+                found_open = True
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+            if found_open and brace_count == 0:
+                break
+        func_body = JS_CONTENT[start:pos]
+        self.assertIn("buildStreamUrl('ascii-stream'", func_body,
+                      'loadAsciiTranscript must delegate URL building to buildStreamUrl')
+
+    def test_buildStreamUrl_encodes_parameters(self):
+        """buildStreamUrl must encode all URL parameters to prevent injection."""
+        func_match = re.search(r'function buildStreamUrl\(', JS_CONTENT)
         self.assertIsNotNone(func_match)
         start = func_match.start()
         brace_count = 0
@@ -1759,8 +1898,109 @@ class TestReanalyzeUI(unittest.TestCase):
 
     def test_reanalyze_uses_checkStatus(self):
         """confirmReanalyze must poll checkStatus after starting reanalysis."""
-        self.assertIn('await checkStatus(md5)', JS_CONTENT,
-                      'confirmReanalyze must poll checkStatus')
+        self.assertIn('await checkStatus(md5, phase', JS_CONTENT,
+                      'confirmReanalyze must poll checkStatus with md5 and phase')
+
+    def test_reanalyze_pdf_sets_files_phase(self):
+        """openReanalyzeModal must set phase to 'files' for non-log non-pcap files like PDF."""
+        func_match = re.search(r'function openReanalyzeModal\(', JS_CONTENT)
+        self.assertIsNotNone(func_match)
+        start = func_match.start()
+        brace_count = 0
+        pos = start
+        found_open = False
+        while pos < len(JS_CONTENT):
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+                found_open = True
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+            if found_open and brace_count == 0:
+                break
+        func_body = JS_CONTENT[start:pos]
+        self.assertIn("isPcapFile = /\\.(pcap|pcapng|cap|trace)$/i.test(name)", func_body,
+                      'openReanalyzeModal must detect PCAP files')
+        self.assertIn("let phase = 'files'", func_body,
+                      'openReanalyzeModal must default to files phase')
+        self.assertIn("if (isLogFile) phase = 'logs'", func_body,
+                      'openReanalyzeModal must set logs phase for log files')
+        self.assertIn("else if (isPcapFile) phase = 'network'", func_body,
+                      'openReanalyzeModal must set network phase for PCAP files')
+
+    def test_reanalyze_pcap_sets_network_phase(self):
+        """openReanalyzeModal must set phase to 'network' for PCAP files."""
+        func_match = re.search(r'function openReanalyzeModal\(', JS_CONTENT)
+        self.assertIsNotNone(func_match)
+        start = func_match.start()
+        brace_count = 0
+        pos = start
+        found_open = False
+        while pos < len(JS_CONTENT):
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+                found_open = True
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+            if found_open and brace_count == 0:
+                break
+        func_body = JS_CONTENT[start:pos]
+        self.assertIn("isPcapFile = /\\.(pcap|pcapng|cap|trace)$/i.test(name)", func_body,
+                      'openReanalyzeModal must detect PCAP files')
+
+    def test_reanalyze_log_sets_logs_phase(self):
+        """openReanalyzeModal must set phase to 'logs' for log files."""
+        func_match = re.search(r'function openReanalyzeModal\(', JS_CONTENT)
+        self.assertIsNotNone(func_match)
+        start = func_match.start()
+        brace_count = 0
+        pos = start
+        found_open = False
+        while pos < len(JS_CONTENT):
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+                found_open = True
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+            if found_open and brace_count == 0:
+                break
+        func_body = JS_CONTENT[start:pos]
+        self.assertIn("isLogFile = /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(name)", func_body,
+                      'openReanalyzeModal must detect log files')
+
+    def test_reanalyze_modal_fallback_to_filename(self):
+        """openReanalyzeModal must fall back to filename-based phase when status API fails."""
+        self.assertIn('async function openReanalyzeModal', JS_CONTENT,
+                      'openReanalyzeModal must be async')
+        func_match = re.search(r'function openReanalyzeModal\(', JS_CONTENT)
+        self.assertIsNotNone(func_match)
+        start = func_match.start()
+        brace_count = 0
+        pos = start
+        found_open = False
+        while pos < len(JS_CONTENT):
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+                found_open = True
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+            if found_open and brace_count == 0:
+                break
+        func_body = JS_CONTENT[start:pos]
+        self.assertIn('catch(err)', func_body,
+                      'openReanalyzeModal must have catch block for status API failures')
+        catch_section = func_body.split('catch(err)')[1]
+        self.assertIn("isLogFile = /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(name)", catch_section,
+                      'Fallback must detect log files by extension')
+        self.assertIn("isPcapFile = /\\.(pcap|pcapng|cap|trace)$/i.test(name)", catch_section,
+                      'Fallback must detect PCAP files by extension')
+        self.assertIn("if (isLogFile) phase = 'logs'", catch_section,
+                      'Fallback must set logs phase')
+        self.assertIn("else if (isPcapFile) phase = 'network'", catch_section,
+                      'Fallback must set network phase')
 
 
 class TestFileAlertsUI(unittest.TestCase):
@@ -1781,6 +2021,8 @@ class TestFileAlertsUI(unittest.TestCase):
                       'getColumnsForType must handle filealerts')
         self.assertIn("'Tags'", JS_CONTENT,
                       'filealerts columns must include Tags')
+        self.assertIn("'Author'", JS_CONTENT,
+                      'filealerts columns must include Author')
 
     def test_filealerts_row_rendering(self):
         self.assertIn("case 'filealerts':", JS_CONTENT,
@@ -1789,6 +2031,8 @@ class TestFileAlertsUI(unittest.TestCase):
                       'buildRowForEvent must render rule_name from filealerts object')
         self.assertIn("fa.tags", JS_CONTENT,
                       'buildRowForEvent must render tags from filealerts object')
+        self.assertIn("fa.author", JS_CONTENT,
+                      'buildRowForEvent must render author from filealerts object')
 
     def test_filealerts_row_html(self):
         """buildRowForEvent must produce correct HTML for filealerts events."""
@@ -1804,6 +2048,7 @@ class TestFileAlertsUI(unittest.TestCase):
             'filealerts': {
                 'rule_name': 'MALWARE_Test',
                 'tags': ['MALWARE', 'APT'],
+                'author': 'FLIRT',
                 'sha256': 'a' * 64,
             }
         }
@@ -1814,6 +2059,7 @@ class TestFileAlertsUI(unittest.TestCase):
                 hasRuleName: html.indexOf('MALWARE_Test') >= 0,
                 hasTagBadge: html.indexOf('MALWARE') >= 0,
                 hasTags: html.indexOf('APT') >= 0,
+                hasAuthor: html.indexOf('FLIRT') >= 0,
                 hasTCP: html.indexOf('TCP') >= 0,
                 hasSrcIp: html.indexOf('192.168.1.1') >= 0,
             }};
@@ -1821,6 +2067,7 @@ class TestFileAlertsUI(unittest.TestCase):
         self.assertTrue(result['hasRuleName'], 'Row must contain rule name')
         self.assertTrue(result['hasTagBadge'], 'Row must contain tag badge')
         self.assertTrue(result['hasTags'], 'Row must contain tags')
+        self.assertTrue(result['hasAuthor'], 'Row must contain author')
         self.assertTrue(result['hasTCP'], 'Row must contain protocol')
         self.assertTrue(result['hasSrcIp'], 'Row must contain source IP')
 
@@ -1828,9 +2075,13 @@ class TestFileAlertsUI(unittest.TestCase):
         self.assertIn("case 'Tags':", JS_CONTENT,
                       'extractValue must handle Tags column')
 
+    def test_extract_value_author(self):
+        self.assertIn("case 'Author':", JS_CONTENT,
+                      'extractValue must handle Author column')
+
     def test_fileinfo_shows_yara_matches_section(self):
-        self.assertIn('YARA Matches', JS_CONTENT,
-                      'formatEvent must show YARA Matches section for fileinfo')
+        self.assertIn('filealerts', JS_CONTENT,
+                      'JS must handle filealerts event type for fileinfo/YARA analysis')
 
     def test_filealerts_in_all_event_types(self):
         expected_types = ['alert', 'dns', 'http', 'tls', 'flow', 'ftp', 'stats', 'anomaly', 'fileinfo', 'filealerts']
@@ -1842,6 +2093,87 @@ class TestFileAlertsUI(unittest.TestCase):
                       'buildRowForEvent must access filealerts via nested schema')
         self.assertIn('e.filealerts?.tags', JS_CONTENT,
                       'buildRowForEvent must access tags via nested schema')
+        self.assertIn('e.filealerts?.author', JS_CONTENT,
+                      'buildRowForEvent must access author via nested schema')
+
+    def test_renderFileAlertDetails_shows_author(self):
+        """renderFileAlertDetails must include Author when present."""
+        from tests.jsdom_helper import js_statements
+        event = {
+            'event_type': 'filealerts',
+            'filealerts': {
+                'rule_name': 'MALWARE_Test',
+                'tags': ['MALWARE'],
+                'author': 'FLIRT',
+                'sha256': 'a' * 64,
+            }
+        }
+        result = js_statements(f'''
+            var e = {json.dumps(event)};
+            var html = renderFileAlertDetails(e);
+            window.__jsdom_result = {{
+                hasAuthor: html.indexOf('FLIRT') >= 0,
+                hasRuleName: html.indexOf('MALWARE_Test') >= 0,
+            }};
+        ''')
+        self.assertTrue(result['hasAuthor'], 'Detail must contain author')
+        self.assertTrue(result['hasRuleName'], 'Detail must contain rule name')
+
+    def test_pcap_filename_always_routes_to_network_analysis(self):
+        """PCAP files must always show network analysis screen, even with zero alerts."""
+        # isPcap must be defined based on detected_type from API
+        self.assertIn("const isPcap = detectedType === 'pcap'", JS_CONTENT,
+                      'JS must use detected_type from API to determine PCAP mode')
+        # Must use detected_type from status API
+        self.assertIn("const detectedType = analysisStatus.meta?.detected_type", JS_CONTENT,
+                      'JS must read detected_type from status API meta')
+        # Must NOT use alert absence to determine file-only mode
+        self.assertNotIn("!eventTypes.includes('alert')", JS_CONTENT,
+                         'JS must not infer PCAP mode from alert absence')
+
+    def test_zip_uses_meta_detected_type_for_routing(self):
+        """ZIP uploads must use backend .meta detected_type, not filename extension."""
+        # Frontend must fetch /api/status to get meta
+        self.assertIn("fetch('/api/status?md5='", JS_CONTENT,
+                      'JS must fetch status API to get detected_type for routing')
+        # Fallback must exist for old analyses without .meta
+        self.assertIn("currentFileName) ? 'pcap'", JS_CONTENT,
+                      'JS must fallback to filename extension when .meta is missing')
+
+    def test_evtx_routes_to_log_analysis_not_network(self):
+        """EVTX files must route to log analysis, not PCAP network screen."""
+        # isFileOnly must include log files (not just exclude PCAP)
+        self.assertIn("const isFileOnly = !isPcap;", JS_CONTENT,
+                      'JS must treat all non-PCAP as file-analysis (log or binary)')
+        # Log analysis branch must exist inside file-analysis block
+        self.assertIn("if (isLogFile) {", JS_CONTENT,
+                      'JS must have log analysis branch inside file-analysis')
+        # Sankey diagram must only render for PCAP (outside file-analysis)
+        func_body = JS_CONTENT.split('function loadAnalysis(')[1].split('async function')[0]
+        # The sankey rendering should be in the PCAP-only else branch
+        self.assertIn("const sankeyPanel = document.getElementById('sankeyPanel');", func_body,
+                      'Sankey rendering must exist in loadAnalysis')
+
+    def test_reanalyze_zip_pcap_shows_network_phase(self):
+        """Re-analyze modal must fetch /api/status to get detected_type for ZIP-PCAP."""
+        # openReanalyzeModal must be async
+        self.assertIn('async function openReanalyzeModal', JS_CONTENT,
+                      'openReanalyzeModal must be async to fetch status API')
+        # Must fetch /api/status inside reanalyze modal
+        self.assertIn("fetch('/api/status?md5='", JS_CONTENT,
+                      'JS must fetch status API in reanalyze modal')
+        # Must use detected_type from status response
+        self.assertIn("const detectedType = status.meta?.detected_type", JS_CONTENT,
+                      'JS must use detected_type from status API for reanalyze phase')
+
+    def test_corrupted_meta_fallback(self):
+        """Frontend must fallback to filename-based detection when .meta is missing."""
+        # Fallback chain must exist: meta → filename extension → binary default
+        self.assertIn("analysisStatus.meta?.detected_type ||", JS_CONTENT,
+                      'JS must fallback when .meta is missing or corrupted')
+        # Binary must be the ultimate default
+        self.assertIn("? 'log' : 'binary'", JS_CONTENT,
+                      'JS must default to binary when neither PCAP nor log')
 
 
 class TestMaybeLinkifyValueSecurity(unittest.TestCase):
@@ -1886,7 +2218,7 @@ class TestMaybeLinkifyValueSecurity(unittest.TestCase):
         self.fail(f'Could not find closing brace for function {name}')
 
     def _run_js_plain(self, expr):
-        """Run a JS expression via Node.js using the actual maybeLinkifyValue from ohmypcap.js."""
+        """Run a JS expression via Node.js using the actual maybeLinkifyValue from socrates.js."""
         import subprocess
         escape_html_src = self._extract_js_function('escapeHtml')
         linkify_src = self._extract_js_function('maybeLinkifyValue')
@@ -1935,6 +2267,830 @@ class TestMaybeLinkifyValueSecurity(unittest.TestCase):
         """javascript: URLs disguised with unicode must not slip through."""
         result = self._run_js_plain('"\\u0000javascript:alert(1)"')
         self.assertNotIn('<a', result, 'Null-prefixed javascript must not produce anchor tags')
+
+
+class TestLogAnalysisUI(unittest.TestCase):
+    def test_discoverLogColumns_prioritizes_known_fields(self):
+        """discoverLogColumns must return base fields first, then dynamic fields, max 8 total."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'json_data': {'Channel': 'Security', 'EventID': 4624, 'Computer': 'PC1', 'Image': 'evil.exe', 'CommandLine': 'evil.exe -payload'}},
+            {'json_data': {'Channel': 'Security', 'EventID': 4625, 'Computer': 'PC1', 'Image': 'good.exe', 'CommandLine': 'good.exe'}}
+        ]
+        result = js_statements(f'''
+            var events = {json.dumps(events)};
+            var cols = discoverLogColumns(events);
+            window.__jsdom_result = {{
+                hasChannel: cols.some(c => c.field === 'Channel'),
+                hasEventID: cols.some(c => c.field === 'EventID'),
+                hasComputer: cols.some(c => c.field === 'Computer'),
+                hasImage: cols.some(c => c.field === 'Image'),
+                total: cols.length,
+                firstBase: cols[0].type === 'base'
+            }};
+        ''')
+        self.assertTrue(result['hasChannel'])
+        self.assertTrue(result['hasEventID'])
+        self.assertTrue(result['hasComputer'])
+        self.assertTrue(result['hasImage'])
+        self.assertTrue(result['firstBase'])
+        self.assertLessEqual(result['total'], 8)
+
+    def test_discoverLogColumns_returns_empty_for_no_events(self):
+        """discoverLogColumns must return [] for empty input."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            window.__jsdom_result = discoverLogColumns([]);
+        ''')
+        self.assertEqual(result, [])
+
+    def test_discoverSigmaAlertColumns_discovers_original_log_fields(self):
+        """discoverSigmaAlertColumns must return prevalent fields from original_log."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'original_log': json.dumps({'Image': 'evil.exe', 'CommandLine': 'evil.exe -payload'})},
+            {'original_log': json.dumps({'Image': 'evil.exe', 'User': 'admin'})},
+            {'original_log': json.dumps({'Image': 'evil.exe', 'CommandLine': 'other'})}
+        ]
+        result = js_statements(f'''
+            var alerts = {json.dumps(alerts)};
+            var cols = discoverSigmaAlertColumns(alerts);
+            window.__jsdom_result = {{
+                hasImage: cols.some(c => c.field === 'Image'),
+                total: cols.length
+            }};
+        ''')
+        self.assertTrue(result['hasImage'])
+        self.assertLessEqual(result['total'], 3)
+
+    def test_formatLogEventDetail_groups_known_fields(self):
+        """formatLogEventDetail must group known fields into sections like Process."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var html = formatLogEventDetail({Image: 'evil.exe', CommandLine: 'evil.exe -payload'});
+            window.__jsdom_result = {
+                hasProcess: html.indexOf('Process') >= 0,
+                hasImage: html.indexOf('evil.exe') >= 0,
+                hasCommandLine: html.indexOf('evil.exe -payload') >= 0
+            };
+        ''')
+        self.assertTrue(result['hasProcess'])
+        self.assertTrue(result['hasImage'])
+        self.assertTrue(result['hasCommandLine'])
+
+    def test_formatLogEventDetail_falls_back_to_raw_data(self):
+        """formatLogEventDetail must show Raw Data section for unknown fields."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var html = formatLogEventDetail({FooBar: 'baz'});
+            window.__jsdom_result = {
+                hasRawData: html.indexOf('Raw Data') >= 0,
+                hasFooBar: html.indexOf('FooBar') >= 0,
+                hasBaz: html.indexOf('baz') >= 0
+            };
+        ''')
+        self.assertTrue(result['hasRawData'])
+        self.assertTrue(result['hasFooBar'])
+        self.assertTrue(result['hasBaz'])
+
+    def test_formatSigmaAlertDetail_shows_rule_metadata(self):
+        """formatSigmaAlertDetail must show rule title, MITRE links, tags, and matched event."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'original_log': json.dumps({'Image': 'evil.exe'}),
+            'rule_title': 'Test Rule',
+            'rule_id': 'test-123',
+            'severity': 'high',
+            'level': 'critical',
+            'logsource': 'windows',
+            'mitre_techniques': json.dumps(['attack.t1059']),
+            'tags': json.dumps(['test', 'malware'])
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = formatSigmaAlertDetail(alert);
+            window.__jsdom_result = {{
+                hasRuleTitle: html.indexOf('Test Rule') >= 0,
+                hasMitreLink: html.indexOf('T1059') >= 0,
+                hasTag: html.indexOf('malware') >= 0,
+                hasMatchedEvent: html.indexOf('Matched Event') >= 0,
+                hasSeverity: html.indexOf('high') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasRuleTitle'])
+        self.assertTrue(result['hasMitreLink'])
+        self.assertTrue(result['hasTag'])
+        self.assertTrue(result['hasMatchedEvent'])
+        self.assertTrue(result['hasSeverity'])
+
+    def test_getLogEventSmartDetail_network_fallback(self):
+        """getLogEventSmartDetail must return network summary for IP/port fields."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var detail = getLogEventSmartDetail({SourceIp: '1.2.3.4', SourcePort: 80, DestinationIp: '5.6.7.8', DestinationPort: 443});
+            window.__jsdom_result = detail;
+        ''')
+        self.assertIn('1.2.3.4', result)
+        self.assertIn('5.6.7.8', result)
+
+    def test_getLogEventSmartDetail_process_fallback(self):
+        """getLogEventSmartDetail must return command line for process fields."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var detail = getLogEventSmartDetail({Image: 'evil.exe', CommandLine: 'evil.exe -payload'});
+            window.__jsdom_result = detail;
+        ''')
+        self.assertIn('evil.exe', result)
+        self.assertIn('-payload', result)
+
+    def test_getLogEventSmartDetail_empty_fallback(self):
+        """getLogEventSmartDetail must return empty string for empty input."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            window.__jsdom_result = getLogEventSmartDetail({});
+        ''')
+        self.assertEqual(result, '')
+
+    def test_getFilteredLogEvents_matches_time(self):
+        """getFilteredLogEvents must filter by timestamp substring."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {}},
+            {'timestamp': '2024-02-01T00:00:00Z', 'json_data': {}}
+        ]
+        result = js_statements(f'''
+            var events = {json.dumps(events)};
+            currentFilters = {{Time: '2024-01-01T00:00:00'}};
+            var filtered = getFilteredLogEvents(events);
+            window.__jsdom_result = {{
+                count: filtered.length,
+                hasRightTimestamp: filtered[0].timestamp === '2024-01-01T00:00:00Z'
+            }};
+        ''')
+        self.assertEqual(result['count'], 1)
+        self.assertTrue(result['hasRightTimestamp'])
+
+    def test_getFilteredLogEvents_matches_dynamic_column(self):
+        """getFilteredLogEvents must filter by dynamic discovered column."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'json_data': {'Image': 'evil.exe'}},
+            {'json_data': {'Image': 'good.exe'}}
+        ]
+        result = js_statements(f'''
+            var events = {json.dumps(events)};
+            currentFilters = {{Image: 'evil.exe'}};
+            var filtered = getFilteredLogEvents(events);
+            window.__jsdom_result = {{count: filtered.length}};
+        ''')
+        self.assertEqual(result['count'], 1)
+
+    def test_getFilteredSigmaAlerts_matches_severity(self):
+        """getFilteredSigmaAlerts must filter by severity."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'severity': 'high', 'rule_title': 'A', 'mitre_techniques': '[]', 'logsource': 'windows', 'original_log': '{}'},
+            {'severity': 'low', 'rule_title': 'B', 'mitre_techniques': '[]', 'logsource': 'windows', 'original_log': '{}'}
+        ]
+        result = js_statements(f'''
+            var alerts = {json.dumps(alerts)};
+            currentFilters = {{Severity: 'high'}};
+            var filtered = getFilteredSigmaAlerts(alerts);
+            window.__jsdom_result = {{
+                count: filtered.length,
+                ruleTitle: filtered[0].rule_title
+            }};
+        ''')
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['ruleTitle'], 'A')
+
+    def test_buildLogSectionContent_creates_table(self):
+        """buildLogSectionContent must inject a table with Time header and rows into the DOM."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {'Channel': 'Security', 'EventID': 4624}}
+        ]
+        result = js_statements(f'''
+            var section = document.createElement('div');
+            section.id = 'section-log';
+            document.body.appendChild(section);
+            var events = {json.dumps(events)};
+            buildLogSectionContent('section-log', events);
+            var html = section.innerHTML;
+            window.__jsdom_result = {{
+                hasTable: html.indexOf('<table>') >= 0,
+                hasTimeHeader: html.indexOf('Time') >= 0,
+                hasRow: html.indexOf('<tr') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasTable'])
+        self.assertTrue(result['hasTimeHeader'])
+        self.assertTrue(result['hasRow'])
+
+    def test_buildSigmaAlertSectionContent_creates_table(self):
+        """buildSigmaAlertSectionContent must inject a table with Severity and Rule headers."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'severity': 'high', 'rule_title': 'Test', 'rule_id': 'r1', 'mitre_techniques': '[]', 'logsource': 'windows', 'original_log': '{}'}
+        ]
+        result = js_statements(f'''
+            var section = document.createElement('div');
+            section.id = 'section-sigmaalert';
+            document.body.appendChild(section);
+            var alerts = {json.dumps(alerts)};
+            buildSigmaAlertSectionContent('section-sigmaalert', alerts);
+            var html = section.innerHTML;
+            window.__jsdom_result = {{
+                hasTable: html.indexOf('<table>') >= 0,
+                hasSeverityHeader: html.indexOf('Severity') >= 0,
+                hasRuleHeader: html.indexOf('Rule') >= 0,
+                hasRow: html.indexOf('<tr') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasTable'])
+        self.assertTrue(result['hasSeverityHeader'])
+        self.assertTrue(result['hasRuleHeader'])
+        self.assertTrue(result['hasRow'])
+
+    def test_buildLogAggregations_creates_agg_tables(self):
+        """buildLogAggregations must render aggregation tables with agg-row elements."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {'Channel': 'Security', 'EventID': 4624}},
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {'Channel': 'Security', 'EventID': 4624}}
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var events = {json.dumps(events)};
+            buildLogAggregations(events, 'section-log');
+            var html = agg.innerHTML;
+            window.__jsdom_result = {{
+                hasAggRow: html.indexOf('agg-row') >= 0,
+                hasAggPanel: html.indexOf('agg-panel') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasAggRow'])
+        self.assertTrue(result['hasAggPanel'])
+
+    def test_buildSigmaAlertAggregations_creates_agg_tables(self):
+        """buildSigmaAlertAggregations must render Severity aggregation table with agg-row elements."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'severity': 'high', 'rule_title': 'Test Rule', 'mitre_techniques': '[]', 'logsource': 'windows', 'original_log': '{"Image":"evil.exe"}'}
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var alerts = {json.dumps(alerts)};
+            buildSigmaAlertAggregations(alerts, 'section-sigmaalert');
+            var html = agg.innerHTML;
+            window.__jsdom_result = {{
+                hasAggRow: html.indexOf('agg-row') >= 0,
+                hasSeverityHeader: html.indexOf('Severity') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasAggRow'])
+        self.assertTrue(result['hasSeverityHeader'])
+
+    def test_isLogAnalysisMode_false_after_clear(self):
+        """clearAnalysisContainers must reset isLogAnalysisMode to false."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            isLogAnalysisMode = true;
+            clearAnalysisContainers();
+            window.__jsdom_result = isLogAnalysisMode;
+        ''')
+        self.assertFalse(result)
+
+    def test_buildLogEventRow_renders_detail_panel(self):
+        """buildLogEventRow must render a detail row with log-detail-panel containing formatted event detail."""
+        from tests.jsdom_helper import js_statements
+        event = {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {'Image': 'evil.exe'}}
+        result = js_statements(f'''
+            var event = {json.dumps(event)};
+            var cols = discoverLogColumns([event]);
+            var html = buildLogEventRow(event, cols);
+            window.__jsdom_result = {{
+                hasDetailRow: html.indexOf('detail-row') >= 0,
+                hasLogDetailPanel: html.indexOf('log-detail-panel') >= 0,
+                hasImage: html.indexOf('evil.exe') >= 0
+            }};
+        ''')
+        self.assertTrue(result['hasDetailRow'])
+        self.assertTrue(result['hasLogDetailPanel'])
+        self.assertTrue(result['hasImage'])
+
+
+class TestXSSPreventionLogAnalysis(unittest.TestCase):
+    def _get_function_body(self, func_name):
+        func_match = re.search(rf'function {re.escape(func_name)}\([^)]*\)\s*\{{', JS_CONTENT)
+        self.assertIsNotNone(func_match, f'{func_name} function not found')
+        start = func_match.end()
+        brace_count = 1
+        pos = start
+        while pos < len(JS_CONTENT) and brace_count > 0:
+            if JS_CONTENT[pos] == '{':
+                brace_count += 1
+            elif JS_CONTENT[pos] == '}':
+                brace_count -= 1
+            pos += 1
+        return JS_CONTENT[start:pos]
+
+    def _assert_no_unescaped_script(self, html, context):
+        """Assert that raw <script> or <img onerror tags do not appear unescaped."""
+        lower = html.lower()
+        self.assertNotIn('<script>', lower,
+                         f'{context}: unescaped <script> tag found in output')
+        self.assertNotIn('<img', lower,
+                         f'{context}: unescaped <img> tag found in output')
+        self.assertNotIn('javascript:', lower,
+                         f'{context}: unescaped javascript: URI found in output')
+
+    # ---- String-inspection tests for escapeHtml presence ----
+
+    def test_formatLogEventDetail_uses_htmlRowText(self):
+        """formatLogEventDetail must escape all user-controlled values via htmlRowText."""
+        func_body = self._get_function_body('formatLogEventDetail')
+        self.assertIn('htmlRowText', func_body,
+                      'formatLogEventDetail must use htmlRowText for field values')
+
+    def test_formatSigmaAlertDetail_uses_htmlRowText(self):
+        """formatSigmaAlertDetail must escape rule metadata with htmlRowText."""
+        func_body = self._get_function_body('formatSigmaAlertDetail')
+        self.assertIn("htmlRowText('Rule Title', alert.rule_title)", func_body,
+                      'rule_title must be passed through htmlRowText')
+        self.assertIn("htmlRowText('Rule ID', alert.rule_id)", func_body,
+                      'rule_id must be passed through htmlRowText')
+        self.assertIn("htmlRowText('Severity', alert.severity)", func_body,
+                      'severity must be passed through htmlRowText')
+        self.assertIn("htmlRowText('Log Source', alert.logsource)", func_body,
+                      'logsource must be passed through htmlRowText')
+        self.assertIn('escapeHtml(tid)', func_body,
+                      'MITRE technique ID must be escaped')
+        self.assertIn('escapeHtml(t)', func_body,
+                      'Sigma tags must be escaped')
+
+    def test_buildLogEventRow_escapes_all_fields(self):
+        """buildLogEventRow must escape timestamp, column values, and detail."""
+        func_body = self._get_function_body('buildLogEventRow')
+        self.assertIn('escapeHtml((evt.timestamp', func_body,
+                      'timestamp must be escaped')
+        self.assertIn('escapeHtml(val)', func_body,
+                      'column values must be escaped')
+        self.assertIn('escapeHtml(detailTruncated)', func_body,
+                      'detail text must be escaped')
+
+    def test_buildSigmaAlertRow_escapes_all_fields(self):
+        """buildSigmaAlertRow must escape timestamp, severity, rule title, and logsource."""
+        func_body = self._get_function_body('buildSigmaAlertRow')
+        self.assertIn('escapeHtml(alert.timestamp', func_body,
+                      'timestamp must be escaped')
+        self.assertIn('escapeHtml(sev.toUpperCase())', func_body,
+                      'severity must be escaped')
+        self.assertIn('escapeHtml(alert.rule_title', func_body,
+                      'rule_title must be escaped')
+        self.assertIn('escapeHtml(alert.rule_id', func_body,
+                      'rule_id must be escaped')
+        self.assertIn('escapeHtml(alert.logsource', func_body,
+                      'logsource must be escaped')
+
+    # ---- JSDOM behavioral tests with malicious payloads ----
+
+    def test_formatLogEventDetail_escapes_script_tags(self):
+        """formatLogEventDetail must escape <script> tags in field values."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var html = formatLogEventDetail({Image: '<script>alert(1)</script>'});
+            window.__jsdom_result = {
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasEscapedScript: html.indexOf('&lt;script&gt;') >= 0
+            };
+        ''')
+        self.assertFalse(result['hasUnescapedScript'],
+                         'formatLogEventDetail must not contain unescaped <script>')
+        self.assertTrue(result['hasEscapedScript'],
+                        'formatLogEventDetail should contain escaped &lt;script&gt;')
+
+    def test_formatLogEventDetail_escapes_raw_data_section(self):
+        """formatLogEventDetail must escape unknown fields in Raw Data section."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            var html = formatLogEventDetail({'<script>key</script>': '<img src=x onerror=alert(1)>'});
+            window.__jsdom_result = {
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasUnescapedImg: html.indexOf('<img') >= 0,
+                hasEscapedScript: html.indexOf('&lt;script&gt;') >= 0
+            };
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertFalse(result['hasUnescapedImg'])
+        self.assertTrue(result['hasEscapedScript'])
+
+    def test_formatSigmaAlertDetail_escapes_rule_title(self):
+        """formatSigmaAlertDetail must escape <script> in rule title."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'rule_title': '<script>alert(1)</script>',
+            'rule_id': 'test-123',
+            'severity': 'high',
+            'level': 'critical',
+            'logsource': 'windows',
+            'mitre_techniques': '[]',
+            'tags': '[]',
+            'original_log': '{}'
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = formatSigmaAlertDetail(alert);
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasEscapedScript: html.indexOf('&lt;script&gt;') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertTrue(result['hasEscapedScript'])
+
+    def test_formatSigmaAlertDetail_escapes_tags(self):
+        """formatSigmaAlertDetail must escape <script> in Sigma tags."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'rule_title': 'Test',
+            'rule_id': 'r1',
+            'severity': 'low',
+            'level': 'low',
+            'logsource': 'windows',
+            'mitre_techniques': '[]',
+            'tags': json.dumps(['<script>alert(1)</script>']),
+            'original_log': '{}'
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = formatSigmaAlertDetail(alert);
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasEscapedScript: html.indexOf('&lt;script&gt;') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertTrue(result['hasEscapedScript'])
+
+    def test_formatSigmaAlertDetail_escapes_mitre_techniques(self):
+        """formatSigmaAlertDetail must escape <script> in MITRE technique display text and encode in href."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'rule_title': 'Test',
+            'rule_id': 'r1',
+            'severity': 'low',
+            'level': 'low',
+            'logsource': 'windows',
+            'mitre_techniques': json.dumps(['attack.<script>alert(1)</script>']),
+            'tags': '[]',
+            'original_log': '{}'
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = formatSigmaAlertDetail(alert);
+            window.__jsdom_result = {{
+                hasUnescapedScriptInText: html.indexOf('<script>') >= 0,
+                hasEscapedScriptInText: html.indexOf('&lt;SCRIPT&gt;') >= 0,
+                hasEncodedInHref: html.indexOf('encodeURIComponent') >= 0 || html.indexOf('%3C') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScriptInText'],
+                         'MITRE technique display text must not contain unescaped <script>')
+        self.assertTrue(result['hasEscapedScriptInText'],
+                        'MITRE technique display text must contain escaped &lt;SCRIPT&gt;')
+        self.assertTrue(result['hasEncodedInHref'],
+                        'MITRE technique ID must be encoded in href URL')
+
+    def test_buildLogEventRow_escapes_all_fields(self):
+        """buildLogEventRow must escape timestamp, column values, and detail."""
+        from tests.jsdom_helper import js_statements
+        event = {
+            'timestamp': '<script>alert(1)</script>',
+            'json_data': {'Channel': '<script>alert(2)</script>', 'CommandLine': '<img src=x onerror=alert(3)>'}
+        }
+        result = js_statements(f'''
+            var event = {json.dumps(event)};
+            var cols = discoverLogColumns([event]);
+            var html = buildLogEventRow(event, cols);
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasUnescapedImg: html.indexOf('<img') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertFalse(result['hasUnescapedImg'])
+
+    def test_buildSigmaAlertRow_escapes_all_fields(self):
+        """buildSigmaAlertRow must escape timestamp, severity, rule title, and logsource."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'timestamp': '<script>alert(1)</script>',
+            'severity': 'high<script>alert(2)</script>',
+            'rule_title': '<script>alert(3)</script>',
+            'rule_id': '<script>alert(4)</script>',
+            'mitre_techniques': '[]',
+            'logsource': '<script>alert(5)</script>',
+            'original_log': '{}'
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = buildSigmaAlertRow(alert);
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasEscapedScript: html.indexOf('&lt;script&gt;') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertTrue(result['hasEscapedScript'])
+
+    def test_buildLogSectionContent_escapes_event_data(self):
+        """buildLogSectionContent must not contain unescaped script tags after DOM injection."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'timestamp': '<script>alert(1)</script>', 'json_data': {'Channel': '<script>alert(2)</script>'}}
+        ]
+        result = js_statements(f'''
+            var section = document.createElement('div');
+            section.id = 'section-log';
+            document.body.appendChild(section);
+            var events = {json.dumps(events)};
+            buildLogSectionContent('section-log', events);
+            var html = section.innerHTML;
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+
+    def test_buildSigmaAlertSectionContent_escapes_alert_data(self):
+        """buildSigmaAlertSectionContent must not contain unescaped script tags after DOM injection."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'timestamp': '<script>alert(1)</script>', 'severity': 'high', 'rule_title': '<script>alert(2)</script>',
+             'rule_id': 'r1', 'mitre_techniques': '[]', 'logsource': '<script>alert(3)</script>', 'original_log': '{}'}
+        ]
+        result = js_statements(f'''
+            var section = document.createElement('div');
+            section.id = 'section-sigmaalert';
+            document.body.appendChild(section);
+            var alerts = {json.dumps(alerts)};
+            buildSigmaAlertSectionContent('section-sigmaalert', alerts);
+            var html = section.innerHTML;
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+
+    def test_buildLogAggregations_escapes_values_in_onclick(self):
+        """buildLogAggregations must not allow double quotes in aggregation values to break onclick."""
+        from tests.jsdom_helper import js_statements
+        events = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {'Channel': 'test"onclick="alert(1)'}}
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var events = {json.dumps(events)};
+            buildLogAggregations(events, 'section-log');
+            var html = agg.innerHTML;
+            // Find the onclick attribute and check if it contains unescaped double quotes
+            var onclickMatch = html.match(/onclick="([^"]*)"([^>]*)/);
+            var hasBrokenAttr = false;
+            if (onclickMatch) {{
+                // If there's content after the first closing quote but before the tag end,
+                // the attribute was broken
+                hasBrokenAttr = onclickMatch[2].trim().length > 0 && onclickMatch[2].indexOf('>') === -1;
+            }}
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasBrokenOnclick: hasBrokenAttr
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertFalse(result['hasBrokenOnclick'],
+                         'onclick attribute must not be breakable by double quotes in user data')
+
+    def test_buildSigmaAlertAggregations_escapes_values_in_onclick(self):
+        """buildSigmaAlertAggregations must not allow double quotes in rule titles to break onclick."""
+        from tests.jsdom_helper import js_statements
+        alerts = [
+            {'severity': 'high', 'rule_title': 'test"onclick="alert(1)', 'mitre_techniques': '[]',
+             'logsource': 'windows', 'original_log': '{}'}
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var alerts = {json.dumps(alerts)};
+            buildSigmaAlertAggregations(alerts, 'section-sigmaalert');
+            var html = agg.innerHTML;
+            var onclickMatch = html.match(/onclick="([^"]*)"([^>]*)/);
+            var hasBrokenAttr = false;
+            if (onclickMatch) {{
+                hasBrokenAttr = onclickMatch[2].trim().length > 0 && onclickMatch[2].indexOf('>') === -1;
+            }}
+            window.__jsdom_result = {{
+                hasUnescapedScript: html.indexOf('<script>') >= 0,
+                hasBrokenOnclick: hasBrokenAttr
+            }};
+        ''')
+        self.assertFalse(result['hasUnescapedScript'])
+        self.assertFalse(result['hasBrokenOnclick'],
+                         'onclick attribute must not be breakable by double quotes in rule titles')
+
+    def test_buildLogEventRow_detail_id_with_quotes(self):
+        """buildLogEventRow must handle row_id containing quotes without breaking onclick."""
+        from tests.jsdom_helper import js_statements
+        event = {
+            'row_id': 'test"onclick="alert(1)',
+            'timestamp': '2024-01-01T00:00:00Z',
+            'json_data': {}
+        }
+        result = js_statements(f'''
+            var event = {json.dumps(event)};
+            var cols = [];
+            var html = buildLogEventRow(event, cols);
+            var onclickMatch = html.match(/onclick="([^"]*)"([^>]*)/);
+            var hasBrokenAttr = false;
+            if (onclickMatch) {{
+                hasBrokenAttr = onclickMatch[2].trim().length > 0 && onclickMatch[2].indexOf('>') === -1;
+            }}
+            window.__jsdom_result = {{
+                hasBrokenOnclick: hasBrokenAttr
+            }};
+        ''')
+        self.assertFalse(result['hasBrokenOnclick'],
+                         'detailId in onclick must not be breakable by quotes')
+
+    def test_buildSigmaAlertRow_detail_id_with_quotes(self):
+        """buildSigmaAlertRow must handle alert.id containing quotes without breaking onclick."""
+        from tests.jsdom_helper import js_statements
+        alert = {
+            'id': 'test"onclick="alert(1)',
+            'timestamp': '2024-01-01T00:00:00Z',
+            'severity': 'high',
+            'rule_title': 'Test',
+            'rule_id': 'r1',
+            'mitre_techniques': '[]',
+            'logsource': 'windows',
+            'original_log': '{}'
+        }
+        result = js_statements(f'''
+            var alert = {json.dumps(alert)};
+            var html = buildSigmaAlertRow(alert);
+            var onclickMatch = html.match(/onclick="([^"]*)"([^>]*)/);
+            var hasBrokenAttr = false;
+            if (onclickMatch) {{
+                hasBrokenAttr = onclickMatch[2].trim().length > 0 && onclickMatch[2].indexOf('>') === -1;
+            }}
+            window.__jsdom_result = {{
+                hasBrokenOnclick: hasBrokenAttr
+            }};
+        ''')
+        self.assertFalse(result['hasBrokenOnclick'],
+                         'detailId in onclick must not be breakable by quotes')
+
+
+class TestBackwardCompatibilityUI(unittest.TestCase):
+    """Test frontend behavior when loading old analyses without .meta files."""
+
+    def test_load_analysis_fallback_to_pcap_for_pcap_filename(self):
+        """When check-status returns no meta and filename is .pcap, frontend must set isPcap=true."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            // Simulate the loadAnalysis flow with a .pcap file and no meta
+            var analysisStatus = { status: 'ready', md5: 'a' * 32, file_name: 'capture.pcap' };
+            var detectedType = analysisStatus.meta?.detected_type ||
+                (analysisStatus.file_name && /\\.(pcap|pcapng|cap|trace)$/i.test(analysisStatus.file_name) ? 'pcap' :
+                 analysisStatus.file_name && /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(analysisStatus.file_name) ? 'log' : 'binary');
+            var isPcap = detectedType === 'pcap';
+            var isLogFile = /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(analysisStatus.file_name || '');
+            var isFileOnly = !isPcap;
+            window.__jsdom_result = {
+                detectedType: detectedType,
+                isPcap: isPcap,
+                isLogFile: isLogFile,
+                isFileOnly: isFileOnly
+            };
+        ''')
+        self.assertEqual(result['detectedType'], 'pcap')
+        self.assertTrue(result['isPcap'])
+        self.assertFalse(result['isLogFile'])
+        self.assertFalse(result['isFileOnly'])
+
+    def test_load_analysis_fallback_to_binary_for_unknown_extension(self):
+        """When check-status returns no meta and filename has no known extension, frontend must default to binary."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            // Simulate the loadAnalysis flow with an unknown file and no meta
+            var analysisStatus = { status: 'ready', md5: 'a' * 32, file_name: 'unknown.dat' };
+            var detectedType = analysisStatus.meta?.detected_type ||
+                (analysisStatus.file_name && /\\.(pcap|pcapng|cap|trace)$/i.test(analysisStatus.file_name) ? 'pcap' :
+                 analysisStatus.file_name && /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(analysisStatus.file_name) ? 'log' : 'binary');
+            var isPcap = detectedType === 'pcap';
+            var isLogFile = /\\.(evtx|json|jsonl|csv|xml|log)$/i.test(analysisStatus.file_name || '');
+            var isFileOnly = !isPcap;
+            window.__jsdom_result = {
+                detectedType: detectedType,
+                isPcap: isPcap,
+                isLogFile: isLogFile,
+                isFileOnly: isFileOnly
+            };
+        ''')
+        self.assertEqual(result['detectedType'], 'binary')
+        self.assertFalse(result['isPcap'])
+        self.assertFalse(result['isLogFile'])
+        self.assertTrue(result['isFileOnly'])
+
+
+class TestErrorHandlingUI(unittest.TestCase):
+    """Test frontend error handling when API calls fail."""
+
+    def test_refreshAnalysisData_has_try_catch_with_hideLoading_and_showError(self):
+        """refreshAnalysisData must wrap fetches in try/catch that calls hideLoading and showError."""
+        func_body = JS_CONTENT.split('function refreshAnalysisData()')[1].split('function loadAnalysis(')[0]
+        self.assertIn('try {', func_body, 'refreshAnalysisData must have try block')
+        self.assertIn("} catch(err) {", func_body, 'refreshAnalysisData must have catch block')
+        self.assertIn('hideLoading();', func_body, 'catch must call hideLoading')
+        self.assertIn('showError(', func_body, 'catch must call showError')
+
+    def test_loadAnalysis_catch_calls_hideLoading_and_showError(self):
+        """loadAnalysis catch block must call hideLoading and showError."""
+        func_body = JS_CONTENT.split('function loadAnalysis(md5)')[1].split('function loadSampleUrl(')[0]
+        self.assertIn('} catch(err) {', func_body, 'loadAnalysis must have catch block')
+        self.assertIn('hideLoading();', func_body, 'catch must call hideLoading')
+        self.assertIn('showError(', func_body, 'catch must call showError')
+
+
+class TestHelpModalUI(unittest.TestCase):
+    """JSDOM behavioral tests for help modal width and content switching."""
+
+    def test_showHelpModal_adds_wide_class_on_welcome(self):
+        """showHelpModal must add 'wide' class to #helpModal when on welcome screen."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            // Ensure welcome UI is visible (inputBoxes displayed)
+            document.getElementById('inputBoxes').style.display = 'block';
+            document.getElementById('mainHeader').style.display = 'none';
+            showHelpModal();
+            var modal = document.getElementById('helpModal');
+            window.__jsdom_result = {
+                hasWide: modal.classList.contains('wide'),
+                hasActive: modal.classList.contains('active'),
+                title: document.getElementById('helpModalTitle').textContent,
+            };
+        ''')
+        self.assertTrue(result['hasWide'], 'helpModal must have "wide" class on welcome screen')
+        self.assertTrue(result['hasActive'], 'helpModal must have "active" class after showHelpModal')
+        self.assertEqual(result['title'], 'Welcome to SO-CRATES!', 'Title must be Welcome on welcome screen')
+
+    def test_showHelpModal_removes_wide_class_on_analysis(self):
+        """showHelpModal must remove 'wide' class from #helpModal when in analysis mode."""
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            // First show welcome help to set wide class
+            document.getElementById('inputBoxes').style.display = 'block';
+            document.getElementById('mainHeader').style.display = 'none';
+            showHelpModal();
+            // Now switch to analysis mode and call showHelpModal again
+            document.getElementById('inputBoxes').style.display = 'none';
+            document.getElementById('mainHeader').style.display = 'block';
+            // Simulate a loaded file name for analysis help
+            var currentFileName = 'test.pcap';
+            showHelpModal();
+            var modal = document.getElementById('helpModal');
+            window.__jsdom_result = {
+                hasWide: modal.classList.contains('wide'),
+                hasActive: modal.classList.contains('active'),
+                title: document.getElementById('helpModalTitle').textContent,
+            };
+        ''')
+        self.assertFalse(result['hasWide'], 'helpModal must NOT have "wide" class in analysis mode')
+        self.assertTrue(result['hasActive'], 'helpModal must have "active" class after showHelpModal')
+        self.assertEqual(result['title'], 'Analysis Help', 'Title must be Analysis Help in analysis mode')
 
 
 if __name__ == '__main__':

@@ -17,29 +17,32 @@ import threading
 
 from db import (
     get_event_count_sqlite, get_event_types_sqlite, query_events_sqlite,
-    create_file_analysis_db,
+    create_file_analysis_db, insert_sigma_alerts,
+    query_sigma_alerts_sqlite, get_sigma_stats_sqlite,
 )
 from validators import (
     validate_ip, validate_port, sanitize_filename, is_safe_path,
-    validate_url_safety, validate_zip_extraction, validate_pcap_content
+    validate_url_safety, validate_zip_extraction,
+    is_log_file, is_log_file_by_extension, is_office_file_by_extension,
 )
-from suricata import (
-    REQUIRED_EXECUTABLES, check_executables, has_internet_access,
-    setup_suricata_config, spawn_suricata, _set_error
+from suricata_analyzer import (
+    REQUIRED_EXECUTABLES, check_executables, setup_suricata_config, spawn_suricata, _set_error
 )
-from yara_scanner import check_yara_executable, setup_yara_rules, scan_single_file
+from yara_analyzer import check_yara_executable, setup_yara_rules, scan_single_file
+from sigma_analyzer import (
+    is_zircolite_available, setup_sigma_rules, run_sigma_pipeline, parse_zircolite_results
+)
 import config
 
-VERSION = '4.0.0'
+VERSION = '1.0.0'
 PORT = int(os.environ.get('PORT', 8000))
 BIND_ADDRESS = os.environ.get('BIND_ADDRESS', '127.0.0.1')
-DATA_DIR = os.environ.get('DATA_DIR', os.path.expanduser('~/ohmypcap-data'))
+DATA_DIR = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))
 # Re-export size limits for backward compatibility
 MAX_TRANSCRIPT_SIZE = config.MAX_TRANSCRIPT_SIZE
 MAX_UPLOAD_SIZE = config.MAX_UPLOAD_SIZE
 MAX_EVE_SIZE = config.MAX_EVE_SIZE
 SURICATA_DIR = os.path.join(DATA_DIR, 'suricata')
-SURICATA_RULES_DIR = os.path.join(SURICATA_DIR, 'rules')
 
 PCAP_EXTENSIONS = ('.pcap', '.pcapng', '.cap', '.trace')
 MD5_RE = re.compile(r'^[a-f0-9]{32}$')
@@ -71,33 +74,6 @@ def _attempt_zip_extract(zip_ref, extract_dir, passwords):
     return extracted
 
 
-def extract_pcap_from_zip(zip_data, extract_dir, passwords=None):
-    """Extract a PCAP file from zip_data into extract_dir.
-
-    Returns (pcap_data, pcap_filename).
-    Raises ValueError if extraction fails or no PCAP is found.
-    """
-    tmp_zip = os.path.join(extract_dir, 'archive.zip')
-    with open(tmp_zip, 'wb') as f:
-        f.write(zip_data)
-
-    try:
-        with zipfile.ZipFile(tmp_zip, 'r') as zip_ref:
-            if not _attempt_zip_extract(zip_ref, extract_dir, passwords):
-                raise ValueError('Password-protected ZIP could not be opened. Please extract the PCAP first.')
-
-        pcap_files = [f for f in os.listdir(extract_dir) if f.endswith(PCAP_EXTENSIONS)]
-        if not pcap_files:
-            raise ValueError('No pcap file found in zip archive')
-
-        extracted_pcap = os.path.join(extract_dir, pcap_files[0])
-        with open(extracted_pcap, 'rb') as f:
-            pcap_data = f.read()
-        return pcap_data, pcap_files[0]
-    finally:
-        if os.path.exists(tmp_zip):
-            os.unlink(tmp_zip)
-
 
 def is_pcap_file(data):
     """Detect if file data is a PCAP or PCAPNG by magic bytes."""
@@ -112,6 +88,33 @@ def is_pcap_file(data):
     if magic == b'\x0a\x0d\x0d\x0a':
         return True
     return False
+
+
+def _write_meta(dir_path, original, extracted, detected_type):
+    """Write analysis metadata for frontend routing."""
+    from datetime import datetime
+    meta = {
+        'version': 1,
+        'original': original,
+        'extracted': extracted,
+        'detected_type': detected_type,
+        'extracted_at': datetime.now().isoformat(),
+    }
+    meta_path = os.path.join(dir_path, '.meta')
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f)
+
+
+def _read_meta(dir_path):
+    """Read analysis metadata if it exists."""
+    meta_path = os.path.join(dir_path, '.meta')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+    return None
 
 
 def _extract_zip_contents(zip_data, extract_dir, passwords=None):
@@ -132,14 +135,15 @@ def _extract_zip_contents(zip_data, extract_dir, passwords=None):
         if os.path.exists(tmp_zip):
             os.unlink(tmp_zip)
 
-    # Return all extracted files, excluding hidden/metadata files
+    # Return all extracted files recursively, excluding hidden/metadata files
     files = []
-    for f in os.listdir(extract_dir):
-        if f.startswith('.') or f.startswith('__'):
-            continue
-        full_path = os.path.join(extract_dir, f)
-        if os.path.isfile(full_path):
-            files.append(full_path)
+    for root, _dirs, filenames in os.walk(extract_dir):
+        for f in filenames:
+            if f.startswith('.') or f.startswith('__'):
+                continue
+            full_path = os.path.join(root, f)
+            if os.path.isfile(full_path):
+                files.append(full_path)
     return files
 
 
@@ -150,7 +154,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _add_security_headers(self):
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'self';")
 
     def end_headers(self):
         self._add_security_headers()
@@ -235,9 +239,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         '/api/hexdump-stream': 'handle_get_hexdump_stream',
         '/api/analyses': 'handle_get_analyses',
         '/api/load-analysis': 'handle_get_load_analysis',
-        '/api/delete-analysis': 'handle_get_delete_analysis',
         '/api/pcap-path': 'handle_get_pcap_path',
         '/api/version': 'handle_get_version',
+        '/api/sigma-alerts': 'handle_get_sigma_alerts',
+        '/api/sigma-stats': 'handle_get_sigma_stats',
+        '/api/status': 'handle_get_status',
     }
 
     POST_ROUTES = {
@@ -245,6 +251,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         '/api/load-url': 'handle_post_load_url',
         '/api/check-status': 'handle_post_check_status',
         '/api/reanalyze': 'handle_post_reanalyze',
+        '/api/delete-analysis': 'handle_post_delete_analysis',
     }
 
     def do_GET(self):
@@ -254,7 +261,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == '/':
             self.send_response(301)
-            self.send_header('Location', '/ohmypcap.html')
+            self.send_header('Location', '/socrates.html')
             self.end_headers()
             return
 
@@ -266,7 +273,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         handler_name = self.GET_ROUTES.get(path)
         if handler_name:
             getattr(self, handler_name)(params)
-        elif path == '/ohmypcap.html' or path.startswith('/static/'):
+        elif path == '/socrates.html' or path.startswith('/static/'):
             super().do_GET()
         else:
             self._send_error(404, 'Not found')
@@ -310,8 +317,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         db_file = os.path.join(dir_path, 'events.db')
         if os.path.exists(db_file):
-            events = query_events_sqlite(db_file, event_type, offset, limit, q)
-            self._send_json(events)
+            try:
+                events = query_events_sqlite(db_file, event_type, offset, limit, q)
+                self._send_json(events)
+            except Exception:
+                self._send_error(500, 'Database error')
         else:
             self._send_json([])
 
@@ -515,6 +525,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         continue
                 name_path = os.path.join(dir_path, 'name.txt')
                 pcap_files = [f for f in os.listdir(dir_path) if f.endswith(PCAP_EXTENSIONS)]
+                non_pcap_files = [f for f in os.listdir(dir_path)
+                                  if not f.endswith(PCAP_EXTENSIONS + ('.zip', '.db', '.json', '.txt', '.phase'))
+                                  and not f.startswith('.')]
 
                 display_name = md5_dir
                 if os.path.exists(name_path) and is_safe_path(dir_path, name_path):
@@ -522,6 +535,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         display_name = f.read().strip()
                 elif pcap_files:
                     display_name = pcap_files[0]
+                elif non_pcap_files:
+                    display_name = non_pcap_files[0]
 
                 if os.path.exists(eve_path) or os.path.exists(db_path):
                     analyses.append({'md5': md5_dir, 'name': display_name})
@@ -559,13 +574,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     file_name = f.read().strip()
             elif pcap_files:
                 file_name = pcap_files[0]
+            else:
+                non_pcap_files = [f for f in os.listdir(dir_path)
+                                  if not f.endswith(PCAP_EXTENSIONS + ('.zip', '.db', '.json', '.txt', '.phase'))
+                                  and not f.startswith('.')]
+                if non_pcap_files:
+                    file_name = non_pcap_files[0]
 
             self._send_json({'success': True, 'md5': md5, 'file_name': file_name})
         else:
             self._send_error(404, 'Analysis not found')
 
-    def handle_get_delete_analysis(self, params):
-        md5 = params.get('md5', [''])[0]
+    def handle_post_delete_analysis(self):
+        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
+        if post_data is None:
+            return
+        data = json.loads(post_data)
+        md5 = data.get('md5', '')
         if not MD5_RE.match(md5):
             self._send_error(400, 'Invalid MD5')
             return
@@ -604,6 +629,65 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def handle_get_version(self, params):
         self._send_json({'version': VERSION})
 
+    def handle_get_sigma_alerts(self, params):
+        md5 = params.get('md5', [''])[0]
+        if not md5:
+            self._send_json([])
+            return
+        if not MD5_RE.match(md5):
+            self._send_json([])
+            return
+        dir_path = os.path.join(DATA_DIR, md5)
+        if not is_safe_path(DATA_DIR, dir_path):
+            self._send_json([])
+            return
+
+        try:
+            offset = int(params.get('offset', ['0'])[0])
+            limit = int(params.get('limit', ['1000'])[0])
+        except ValueError:
+            self._send_json([])
+            return
+
+        offset = max(0, offset)
+        limit = max(1, min(limit, config.MAX_QUERY_LIMIT))
+        severity = params.get('severity', [''])[0] or None
+        q_raw = params.get('q', [])
+        q = [x.strip()[:200] for x in q_raw if x.strip()] or None
+
+        db_file = os.path.join(dir_path, 'events.db')
+        if os.path.exists(db_file):
+            try:
+                alerts = query_sigma_alerts_sqlite(db_file, offset, limit, q, severity)
+                self._send_json(alerts)
+            except Exception:
+                self._send_error(500, 'Database error')
+        else:
+            self._send_json([])
+
+    def handle_get_sigma_stats(self, params):
+        md5 = params.get('md5', [''])[0]
+        if not md5:
+            self._send_json({})
+            return
+        if not MD5_RE.match(md5):
+            self._send_json({})
+            return
+        dir_path = os.path.join(DATA_DIR, md5)
+        if not is_safe_path(DATA_DIR, dir_path):
+            self._send_json({})
+            return
+
+        db_file = os.path.join(dir_path, 'events.db')
+        if os.path.exists(db_file):
+            try:
+                stats = get_sigma_stats_sqlite(db_file)
+                self._send_json(stats)
+            except Exception:
+                self._send_error(500, 'Database error')
+        else:
+            self._send_json({})
+
     def _process_uploaded_file(self, file_data, original_filename, passwords=None):
         """Process uploaded or downloaded file: detect ZIP, extract, find PCAP, compute MD5, dispatch.
 
@@ -621,11 +705,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         safe_filename = sanitize_filename(original_filename)
         is_zip = file_data[:2] == b'PK'
 
-        if is_zip:
+        if is_zip and not is_office_file_by_extension(safe_filename):
             tmp_dir = tempfile.mkdtemp()
             try:
                 extracted_files = _extract_zip_contents(file_data, tmp_dir, passwords or [])
-                pcap_files = [f for f in extracted_files if f.endswith(PCAP_EXTENSIONS)]
+                pcap_files = [f for f in extracted_files if f.lower().endswith(PCAP_EXTENSIONS)]
                 if pcap_files:
                     with open(pcap_files[0], 'rb') as f:
                         pcap_data = f.read()
@@ -643,6 +727,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     shutil.move(pcap_files[0], pcap_path)
                     with open(name_path, 'w') as f:
                         f.write(pcap_filename)
+                    _write_meta(dir_path, safe_filename, pcap_filename, 'pcap')
 
                     spawn_suricata(dir_path, pcap_path, os.path.join(SURICATA_DIR, 'suricata.yaml'), data_dir=DATA_DIR)
                     return {'status': 'processing', 'md5': md5_hash, 'phase': 'network'}
@@ -665,8 +750,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
                     os.makedirs(dir_path, exist_ok=True)
                     shutil.move(first_file, dest_path)
-                    self._analyze_standalone_file(dir_path, dest_path, os.path.basename(dest_path))
-                    return {'status': 'processing', 'md5': md5_hash, 'phase': 'files'}
+                    detected = 'log' if (is_log_file(file_bytes) or is_log_file_by_extension(dest_path)) else 'binary'
+                    _write_meta(dir_path, safe_filename, os.path.basename(dest_path), detected)
+                    if detected == 'log':
+                        self._analyze_log_file(dir_path, dest_path, os.path.basename(dest_path))
+                        return {'status': 'processing', 'md5': md5_hash, 'phase': 'logs'}
+                    else:
+                        self._analyze_standalone_file(dir_path, dest_path, os.path.basename(dest_path))
+                        return {'status': 'processing', 'md5': md5_hash, 'phase': 'files'}
             finally:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
         else:
@@ -688,11 +779,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 f.write(dest_filename)
 
             if is_pcap_file(file_data):
+                detected = 'pcap'
                 spawn_suricata(dir_path, dest_path, os.path.join(SURICATA_DIR, 'suricata.yaml'), data_dir=DATA_DIR)
                 phase = 'network'
+            elif is_log_file(file_data) or is_log_file_by_extension(dest_path):
+                detected = 'log'
+                self._analyze_log_file(dir_path, dest_path, dest_filename)
+                phase = 'logs'
             else:
+                detected = 'binary'
                 self._analyze_standalone_file(dir_path, dest_path, dest_filename)
                 phase = 'files'
+            _write_meta(dir_path, dest_filename, dest_filename, detected)
             return {'status': 'processing', 'md5': md5_hash, 'phase': phase}
 
     def _analyze_standalone_file(self, dir_path, file_path, safe_filename):
@@ -706,7 +804,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 pass
 
             try:
-                data_dir = os.environ.get('DATA_DIR', os.path.expanduser('~/ohmypcap-data'))
+                data_dir = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))
                 rules_file = setup_yara_rules(data_dir)
                 db_file = os.path.join(dir_path, 'events.db')
                 name_path = os.path.join(dir_path, 'name.txt')
@@ -734,6 +832,63 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         threading.Thread(target=run_analysis, daemon=True).start()
 
+    def _analyze_log_file(self, dir_path, file_path, safe_filename):
+        """Run Zircolite Sigma analysis on a log file in the background."""
+        def run_analysis():
+            phase_file = os.path.join(dir_path, '.phase')
+            try:
+                with open(phase_file, 'w') as f:
+                    f.write('logs')
+            except OSError:
+                pass
+
+            try:
+                data_dir = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))
+                db_file = os.path.join(dir_path, 'events.db')
+                name_path = os.path.join(dir_path, 'name.txt')
+
+                if not is_zircolite_available():
+                    _set_error(dir_path, 'Sigma analysis unavailable — Zircolite is not installed. Install with: pip3 install zircolite==3.7.1')
+                    from db import _db_connection, _init_db
+                    with _db_connection(db_file) as conn:
+                        _init_db(conn)
+                else:
+                    try:
+                        success, zircolite_db = run_sigma_pipeline(dir_path, file_path, data_dir=data_dir)
+                        if success:
+                            # Import all log events from Zircolite's unified DB
+                            if zircolite_db and os.path.exists(zircolite_db):
+                                from sigma_analyzer import import_zircolite_logs
+                                import_zircolite_logs(zircolite_db, db_file)
+                                try:
+                                    os.unlink(zircolite_db)
+                                except OSError:
+                                    pass
+                            # Import sigma alerts
+                            sigma_output = os.path.join(dir_path, 'sigma_matches.json')
+                            alerts = parse_zircolite_results(sigma_output)
+                            insert_sigma_alerts(db_file, alerts)
+                        else:
+                            # Rules missing or Zircolite failed: create empty DB so UI shows ready
+                            from db import _db_connection, _init_db
+                            with _db_connection(db_file) as conn:
+                                _init_db(conn)
+                    except Exception as e:
+                        _set_error(dir_path, f'Sigma analysis failed: {e}')
+
+                with open(name_path, 'w') as f:
+                    f.write(safe_filename)
+            except Exception as e:
+                _set_error(dir_path, f'Log analysis failed: {e}')
+            finally:
+                try:
+                    if os.path.exists(phase_file):
+                        os.unlink(phase_file)
+                except OSError:
+                    pass
+
+        threading.Thread(target=run_analysis, daemon=True).start()
+
     # ------------------------------------------------------------------
     # POST handlers
     # ------------------------------------------------------------------
@@ -743,7 +898,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if body is None:
             return
 
-        content_length = len(body)
         content_type = self.headers.get('Content-Type', '')
         match = re.search(r'boundary=(.+)', content_type)
         if not match:
@@ -834,21 +988,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             self._send_error(500, 'Internal server error')
 
-    def handle_post_check_status(self):
-        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
-        if post_data is None:
-            return
-        data = json.loads(post_data)
-        md5 = data.get('md5', '')
-
-        if not MD5_RE.match(md5):
-            self._send_error(400, 'Invalid MD5')
-            return
-
-        dir_path = os.path.join(DATA_DIR, md5)
-        if not is_safe_path(DATA_DIR, dir_path):
-            self._send_error(400, 'Invalid path')
-            return
+    def _build_status_response(self, dir_path):
+        """Shared status-check logic for both GET /api/status and POST /api/check-status."""
         db_file = os.path.join(dir_path, 'events.db')
 
         # Check for error files first (highest priority)
@@ -866,8 +1007,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         error_msg = f.read().strip()
                 except OSError:
                     error_msg = 'Analysis failed'
-                self._send_json({'status': 'error', 'message': error_msg})
-                return
+                return {'status': 'error', 'message': error_msg}
 
         phase_file = os.path.join(dir_path, '.phase')
         if os.path.exists(phase_file):
@@ -886,10 +1026,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except OSError:
                 pass
 
-        if os.path.exists(db_file):
-            self._send_json({'status': 'ready'})
-        else:
-            self._send_json({'status': 'processing', 'phase': phase})
+        meta = _read_meta(dir_path)
+        response = {'status': 'ready' if os.path.exists(db_file) else 'processing'}
+        if not os.path.exists(db_file):
+            response['phase'] = phase
+        if meta:
+            response['meta'] = meta
+        return response
+
+    def handle_get_status(self, params):
+        md5 = params.get('md5', [''])[0]
+        if not md5:
+            self._send_error(400, 'Missing MD5')
+            return
+        if not MD5_RE.match(md5):
+            self._send_error(400, 'Invalid MD5')
+            return
+        dir_path = os.path.join(DATA_DIR, md5)
+        if not is_safe_path(DATA_DIR, dir_path):
+            self._send_error(400, 'Invalid path')
+            return
+        self._send_json(self._build_status_response(dir_path))
+
+    def handle_post_check_status(self):
+        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
+        if post_data is None:
+            return
+        data = json.loads(post_data)
+        md5 = data.get('md5', '')
+
+        if not MD5_RE.match(md5):
+            self._send_error(400, 'Invalid MD5')
+            return
+
+        dir_path = os.path.join(DATA_DIR, md5)
+        if not is_safe_path(DATA_DIR, dir_path):
+            self._send_error(400, 'Invalid path')
+            return
+        self._send_json(self._build_status_response(dir_path))
 
     def handle_post_reanalyze(self):
         post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
@@ -919,13 +1093,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pcap_files = [f for f in os.listdir(dir_path) if f.endswith(PCAP_EXTENSIONS)]
         non_pcap_files = [f for f in os.listdir(dir_path)
                           if not f.endswith(PCAP_EXTENSIONS + ('.zip',))
-                          and f not in ('eve.json', 'events.db', '.phase', 'yara_matches.json', 'name.txt')]
+                          and f not in ('eve.json', 'events.db', '.phase', 'yara_matches.json', 'sigma_matches.json', 'name.txt', '.meta', 'zircolite.log', '.zircolite_events.db')]
 
-        # Determine if this is a PCAP or standalone file analysis
+        # Preserve existing .meta so we can rewrite it after cleanup
+        meta_path = os.path.join(dir_path, '.meta')
+        preserved_meta = None
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, 'r') as f:
+                    preserved_meta = json.load(f)
+            except (OSError, ValueError):
+                preserved_meta = None
+
+        # Determine if this is a PCAP, log file, or standalone file analysis
         if pcap_files:
             pcap_path = os.path.join(dir_path, pcap_files[0])
 
-            for artifact in ('eve.json', 'events.db', '.phase', '.error', 'yara_matches.json'):
+            for artifact in ('eve.json', 'events.db', '.phase', '.error', 'yara_matches.json', 'sigma_matches.json', '.meta'):
                 artifact_path = os.path.join(dir_path, artifact)
                 if os.path.exists(artifact_path):
                     try:
@@ -941,22 +1125,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 except OSError:
                     pass
 
+            # Rewrite .meta so frontend retains detected_type after reanalyze
+            if preserved_meta:
+                try:
+                    with open(meta_path, 'w') as f:
+                        json.dump(preserved_meta, f)
+                except OSError:
+                    pass
+
             if spawn_suricata(dir_path, pcap_path, os.path.join(SURICATA_DIR, 'suricata.yaml'), data_dir=DATA_DIR):
                 self._send_json({'status': 'processing', 'md5': md5, 'phase': 'network'})
             else:
                 self._send_error(409, 'Analysis already in progress')
         elif non_pcap_files:
-            # Standalone file re-analysis: re-run YARA with updated rules
             file_path = os.path.join(dir_path, non_pcap_files[0])
-            for artifact in ('events.db', '.error', 'yara_matches.json'):
+            for artifact in ('events.db', '.error', 'yara_matches.json', 'sigma_matches.json', '.meta', 'zircolite.log', '.zircolite_events.db'):
                 artifact_path = os.path.join(dir_path, artifact)
                 if os.path.exists(artifact_path):
                     try:
                         os.unlink(artifact_path)
                     except OSError:
                         pass
-            self._analyze_standalone_file(dir_path, file_path, non_pcap_files[0])
-            self._send_json({'status': 'processing', 'md5': md5, 'phase': 'files'})
+
+            # Rewrite .meta so frontend retains detected_type after reanalyze
+            if preserved_meta:
+                try:
+                    with open(meta_path, 'w') as f:
+                        json.dump(preserved_meta, f)
+                except OSError:
+                    pass
+
+            if is_log_file_by_extension(file_path):
+                self._analyze_log_file(dir_path, file_path, non_pcap_files[0])
+                self._send_json({'status': 'processing', 'md5': md5, 'phase': 'logs'})
+            else:
+                self._analyze_standalone_file(dir_path, file_path, non_pcap_files[0])
+                self._send_json({'status': 'processing', 'md5': md5, 'phase': 'files'})
         else:
             self._send_error(404, 'No analysis file found')
 
@@ -966,7 +1170,7 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 def main():
-    """Run OhMyPCAP server."""
+    """Run SO-CRATES server."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -979,26 +1183,23 @@ def main():
         sys.exit(1)
     
     # Show banner immediately so users know the app is alive
-    title = f'Welcome to OhMyPCAP {VERSION}!'
+    title = f'Welcome to SO-CRATES {VERSION}!'
     padding = ' ' * (61 - len(title))
     print(f"""
     ================================================================
     | {title}{padding}|
-    |                                                              |
-    | Analyze files from the web or your local collection.         |
-    |                                                              |
-    | View alerts and then slice and dice your network metadata!   |
     ================================================================
     """)
 
     # Run setup - handles rules download first
     setup_suricata_config(DATA_DIR)
     setup_yara_rules(DATA_DIR)
+    setup_sigma_rules(DATA_DIR)
 
     if os.environ.get('DEMO'):
-        msg = 'OhMyPCAP is now running. Click the link on the left!'
+        msg = 'SO-CRATES is now running. Click the link on the left!'
     else:
-        msg = f'OhMyPCAP running at http://{BIND_ADDRESS}:{PORT}/ohmypcap.html'
+        msg = f'SO-CRATES running at http://{BIND_ADDRESS}:{PORT}/socrates.html'
     padding = ' ' * (61 - len(msg))
     print(f"""
     ================================================================

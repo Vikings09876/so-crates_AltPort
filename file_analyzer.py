@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lightweight file metadata extraction for OhMyPCAP.
+"""Lightweight file metadata extraction for SO-CRATES.
 
 Provides file type detection (via the `file` command), Shannon entropy
 calculation, and printable string extraction. Used to enrich fileinfo events

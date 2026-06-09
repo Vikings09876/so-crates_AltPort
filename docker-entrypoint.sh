@@ -5,4 +5,4 @@ set -e
 mkdir -p "$DATA_DIR"
 
 # Run the application
-exec python3 /app/ohmypcap.py
+exec python3 /app/socrates.py

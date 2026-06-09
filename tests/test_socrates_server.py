@@ -19,10 +19,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 import config
 import db
-import ohmypcap as server
+import socrates as server
+from validators import validate_pcap_content
 
-SERVER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.py')
-SURICATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'suricata.py')
+SERVER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.py')
+SURICATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'suricata_analyzer.py')
 
 
 class TestIPValidation(unittest.TestCase):
@@ -183,43 +184,43 @@ class TestURLValidation(unittest.TestCase):
 class TestPcapContentValidation(unittest.TestCase):
     def test_pcap_magic_little_endian(self):
         data = b'\xd4\xc3\xb2\xa1' + b'\x00' * 20
-        self.assertTrue(server.validate_pcap_content(data))
+        self.assertTrue(validate_pcap_content(data))
 
     def test_pcap_magic_big_endian(self):
         data = b'\xa1\xb2\xc3\xd4' + b'\x00' * 20
-        self.assertTrue(server.validate_pcap_content(data))
+        self.assertTrue(validate_pcap_content(data))
 
     def test_pcapng_magic(self):
         data = b'\x0a\x0d\x0d\x0a' + b'\x00' * 20
-        self.assertTrue(server.validate_pcap_content(data))
+        self.assertTrue(validate_pcap_content(data))
 
     def test_random_data_rejected(self):
         data = b'this is not a pcap file at all'
-        self.assertFalse(server.validate_pcap_content(data))
+        self.assertFalse(validate_pcap_content(data))
 
     def test_html_rejected(self):
         data = b'<html><body>not a pcap</body></html>'
-        self.assertFalse(server.validate_pcap_content(data))
+        self.assertFalse(validate_pcap_content(data))
 
     def test_elf_rejected(self):
         data = b'\x7fELF' + b'\x00' * 20
-        self.assertFalse(server.validate_pcap_content(data))
+        self.assertFalse(validate_pcap_content(data))
 
     def test_short_data_not_pcap(self):
         data = b'\x00' * 3
-        self.assertFalse(server.validate_pcap_content(data))
+        self.assertFalse(validate_pcap_content(data))
 
     def test_zip_magic_accepted(self):
         data = b'PK\x03\x04' + b'\x00' * 20
-        self.assertTrue(server.validate_pcap_content(data))
+        self.assertTrue(validate_pcap_content(data))
 
     def test_zip_empty_accepted(self):
         data = b'PK\x05\x06' + b'\x00' * 20
-        self.assertTrue(server.validate_pcap_content(data))
+        self.assertTrue(validate_pcap_content(data))
 
     def test_short_zip_rejected(self):
         data = b'PK\x03'
-        self.assertFalse(server.validate_pcap_content(data))
+        self.assertFalse(validate_pcap_content(data))
 
     def test_old_zip_suffix_check_removed(self):
         """Ensure the broken data.endswith(b'.zip') check is gone."""
@@ -499,10 +500,15 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertIn('error', data)
 
     def test_delete_analysis_valid_format_nonexistent(self):
-        status, body = self._get('/api/delete-analysis?md5=' + 'a' * 32)
+        status, body = self._post('/api/delete-analysis', {'md5': 'a' * 32})
         self.assertEqual(status, 404)
         data = json.loads(body)
         self.assertIn('error', data)
+
+    def test_delete_analysis_get_returns_404(self):
+        """GET /api/delete-analysis must return 404 after moving to POST."""
+        status, body = self._get('/api/delete-analysis?md5=' + 'a' * 32)
+        self.assertEqual(status, 404, 'GET /api/delete-analysis must return 404')
 
     def test_pcap_path_invalid_md5(self):
         status, body = self._get('/api/pcap-path?md5=invalid')
@@ -562,8 +568,8 @@ class TestAPIEndpoints(unittest.TestCase):
         """download-stream and hexdump-stream must use 'and port' not 'or port'
         to avoid pulling in unrelated UDP flows sharing the same destination port."""
         import inspect
-        import ohmypcap
-        source = inspect.getsource(ohmypcap)
+        import socrates
+        source = inspect.getsource(socrates)
         # Find the tcpdump filter lines for hexdump and download
         self.assertIn("f'host {src} and host {dst} and port {sport} and port {dport}'", source)
         self.assertIn("f\"host {src} and host {dst} and port {sport} and port {dport}\"", source)
@@ -635,9 +641,9 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(data.get('status'), 'processing')
         self.assertEqual(data.get('phase'), 'files', 'Non-PCAP upload must report files phase')
 
-    @unittest.mock.patch('ohmypcap.scan_single_file')
-    @unittest.mock.patch('ohmypcap.check_yara_executable')
-    @unittest.mock.patch('ohmypcap.setup_yara_rules')
+    @unittest.mock.patch('socrates.scan_single_file')
+    @unittest.mock.patch('socrates.check_yara_executable')
+    @unittest.mock.patch('socrates.setup_yara_rules')
     def test_upload_non_pcap_creates_file_analysis_db(self, mock_setup, mock_check, mock_scan):
         """Uploading a non-PCAP file creates events.db with fileinfo + filealerts."""
         mock_setup.return_value = '/tmp/fake-yara-rules'
@@ -691,15 +697,16 @@ class TestAPIEndpoints(unittest.TestCase):
         fa = alert_events[0]
         self.assertEqual(fa['event_type'], 'filealerts')
         self.assertEqual(fa['filealerts']['rule_name'], 'TEST_Malware')
+        self.assertEqual(fa['filealerts']['author'], 'test')
 
         # Verify mocks were called
         mock_setup.assert_called_once()
         mock_check.assert_called_once()
         mock_scan.assert_called_once()
 
-    @unittest.mock.patch('ohmypcap.scan_single_file')
-    @unittest.mock.patch('ohmypcap.check_yara_executable')
-    @unittest.mock.patch('ohmypcap.setup_yara_rules')
+    @unittest.mock.patch('socrates.scan_single_file')
+    @unittest.mock.patch('socrates.check_yara_executable')
+    @unittest.mock.patch('socrates.setup_yara_rules')
     def test_upload_zip_with_non_pcap_creates_file_analysis_db(self, mock_setup, mock_check, mock_scan):
         """Uploading a ZIP containing a non-PCAP file creates events.db with correct extracted name."""
         mock_setup.return_value = '/tmp/fake-yara-rules'
@@ -753,6 +760,409 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(len(alert_events), 1)
         self.assertEqual(alert_events[0]['filealerts']['rule_name'], 'ZIP_Malware')
 
+
+    def test_upload_pcap_writes_meta_with_detected_type(self):
+        """Direct PCAP upload must write .meta with detected_type 'pcap'."""
+        import random
+        pcap_data = b'\xd4\xc3\xb2\xa1' + bytes([random.randint(0, 255) for _ in range(100)])
+        status, body = self._post_multipart('/api/upload', 'test.pcap', pcap_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for PCAP upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['version'], 1)
+        self.assertEqual(meta['detected_type'], 'pcap')
+        self.assertEqual(meta['original'], 'test.pcap')
+        self.assertEqual(meta['extracted'], 'test.pcap')
+
+    def test_upload_log_writes_meta_with_detected_type(self):
+        """Direct log file upload must write .meta with detected_type 'log'."""
+        file_data = b'{"EventID": 1, "Channel": "Security"}'
+        status, body = self._post_multipart('/api/upload', 'test.json', file_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for log upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+        self.assertEqual(meta['original'], 'test.json')
+
+    def test_upload_binary_writes_meta_with_detected_type(self):
+        """Direct binary upload must write .meta with detected_type 'binary'."""
+        file_data = b'MZ' + b'\x00' * 62
+        status, body = self._post_multipart('/api/upload', 'test.exe', file_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for binary upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'binary')
+        self.assertEqual(meta['original'], 'test.exe')
+
+    def test_upload_zip_pcap_writes_meta_with_detected_type(self):
+        """ZIP containing PCAP must write .meta with detected_type 'pcap' and extracted filename."""
+        import io
+        import zipfile
+        import random
+        pcap_data = b'\xd4\xc3\xb2\xa1' + bytes([random.randint(0, 255) for _ in range(100)])
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('inner.pcap', pcap_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'capture.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for ZIP-PCAP upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'pcap')
+        self.assertEqual(meta['original'], 'capture.zip')
+        self.assertEqual(meta['extracted'], 'inner.pcap')
+
+    def test_upload_evtx_writes_meta_with_detected_type(self):
+        """Direct EVTX upload must write .meta with detected_type 'log'."""
+        file_data = b'<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>1</EventID><Channel>Security</Channel></System></Event>'
+        status, body = self._post_multipart('/api/upload', 'test.evtx', file_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for EVTX upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['version'], 1)
+        self.assertEqual(meta['detected_type'], 'log')
+        self.assertEqual(meta['original'], 'test.evtx')
+        self.assertEqual(meta['extracted'], 'test.evtx')
+
+    def test_upload_zip_evtx_routes_to_log_analysis(self):
+        """ZIP containing EVTX must route to log analysis with detected_type 'log'."""
+        import io, zipfile as zf
+        evtx_data = b'<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>1</EventID></System></Event>'
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('logs.evtx', evtx_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'logs.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['phase'], 'logs')
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for ZIP-EVTX')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+        self.assertEqual(meta['original'], 'logs.zip')
+        self.assertEqual(meta['extracted'], 'logs.evtx')
+
+    def test_upload_zip_json_routes_to_log_analysis(self):
+        """ZIP containing JSON must route to log analysis with detected_type 'log'."""
+        import io, zipfile as zf
+        json_data = b'{"timestamp":"2024-01-01T00:00:00Z","event_type":"test"}'
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('logs.json', json_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'logs.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['phase'], 'logs')
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for ZIP-JSON')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+
+    def test_upload_zip_csv_routes_to_log_analysis(self):
+        """ZIP containing CSV must route to log analysis with detected_type 'log'."""
+        import io, zipfile as zf
+        csv_data = b'timestamp,event_type\n2024-01-01T00:00:00Z,test\n'
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('logs.csv', csv_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'logs.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['phase'], 'logs')
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for ZIP-CSV')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+
+    def test_upload_zip_xml_routes_to_log_analysis(self):
+        """ZIP containing XML must route to log analysis with detected_type 'log'."""
+        import io, zipfile as zf
+        xml_data = b'<?xml version="1.0"?><events><event><id>1</id></event></events>'
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('logs.xml', xml_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'logs.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['phase'], 'logs')
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for ZIP-XML')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+
+    @unittest.mock.patch('socrates.run_sigma_pipeline')
+    @unittest.mock.patch('socrates.parse_zircolite_results')
+    def test_log_analysis_end_to_end(self, mock_parse, mock_pipeline):
+        """Full log analysis pipeline: upload -> mocked Zircolite -> DB -> API queries."""
+        # 1. Create a fake Zircolite unified DB with a logs table
+        fake_zircolite_db = os.path.join(self.tmpdir, 'fake_zircolite.db')
+        conn = sqlite3.connect(fake_zircolite_db)
+        conn.execute('CREATE TABLE logs (row_id INTEGER, Channel TEXT, EventID INTEGER, SystemTime TEXT, CommandLine TEXT, Image TEXT, SourceIp TEXT, DestinationIp TEXT, SourcePort INTEGER, DestinationPort INTEGER, Protocol TEXT)')
+        conn.execute("INSERT INTO logs VALUES (1, 'Microsoft-Windows-Sysmon/Operational', 1, '2024-01-01T12:00:00Z', 'cmd.exe /c whoami', 'C:\\Windows\\System32\\cmd.exe', NULL, NULL, NULL, NULL, NULL)")
+        conn.execute("INSERT INTO logs VALUES (2, 'Microsoft-Windows-Sysmon/Operational', 3, '2024-01-01T12:01:00Z', NULL, NULL, '192.168.1.50', '10.0.0.99', 54321, 443, 'tcp')")
+        conn.commit()
+        conn.close()
+
+        # 2. Stub run_sigma_pipeline to return success + the fake DB path
+        def fake_run_pipeline(dir_path, log_path, data_dir=None):
+            sigma_json = os.path.join(dir_path, 'sigma_matches.json')
+            with open(sigma_json, 'w') as f:
+                json.dump([], f)
+            return True, fake_zircolite_db
+        mock_pipeline.side_effect = fake_run_pipeline
+
+        # 3. Stub parse_zircolite_results to return canned alerts
+        mock_parse.return_value = [{
+            'timestamp': '2024-01-01T12:00:00Z',
+            'rule_title': 'Test Sigma Rule',
+            'rule_id': 'test-123',
+            'severity': 'high',
+            'level': 'high',
+            'logsource': 'windows',
+            'tags': ['attack.execution'],
+            'mitre_techniques': ['attack.t1059'],
+            'original_log': json.dumps({'CommandLine': 'cmd.exe /c whoami'}),
+            'json_data': json.dumps({'title': 'Test Sigma Rule'}),
+        }]
+
+        # 4. Upload a JSON log file
+        log_data = (
+            b'{"EventID": 1, "Channel": "Microsoft-Windows-Sysmon/Operational", '
+            b'"SystemTime": "2024-01-01T12:00:00Z", "Computer": "DESKTOP-TEST", '
+            b'"Image": "C:\\\\Windows\\\\System32\\\\cmd.exe", '
+            b'"CommandLine": "cmd.exe /c whoami", "User": "TESTDOMAIN\\\\jdoe", '
+            b'"ProcessId": 1234, "ParentProcessId": 5678}\n'
+            b'{"EventID": 3, "Channel": "Microsoft-Windows-Sysmon/Operational", '
+            b'"SystemTime": "2024-01-01T12:01:00Z", "SourceIp": "192.168.1.50", '
+            b'"DestinationIp": "10.0.0.99", "SourcePort": 54321, '
+            b'"DestinationPort": 443, "Protocol": "tcp"}\n'
+        )
+        status, body = self._post_multipart('/api/upload', 'test.json', log_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['phase'], 'logs')
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+        self.assertTrue(os.path.exists(meta_path), '.meta must be written for JSON upload')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'log')
+
+        # 5. Poll until ready
+        for _ in range(30):
+            time.sleep(0.2)
+            status, body = self._post('/api/check-status', {'md5': md5})
+            result = json.loads(body)
+            if result.get('status') == 'ready':
+                break
+        self.assertEqual(result['status'], 'ready', 'Analysis must complete')
+        db_path = os.path.join(dir_path, 'events.db')
+        self.assertTrue(os.path.exists(db_path), 'events.db must be created after analysis')
+
+        # 6. Assert Sigma alerts are queryable
+        status, body = self._get('/api/sigma-alerts?md5=' + md5)
+        self.assertEqual(status, 200)
+        alerts = json.loads(body)
+        self.assertEqual(len(alerts), 1, 'Exactly one Sigma alert must be returned')
+        self.assertEqual(alerts[0]['rule_title'], 'Test Sigma Rule')
+        self.assertEqual(alerts[0]['severity'], 'high')
+
+        # 7. Assert log events are queryable
+        status, body = self._get('/api/events?md5=' + md5 + '&type=log')
+        self.assertEqual(status, 200)
+        events = json.loads(body)
+        self.assertGreaterEqual(len(events), 1, 'At least one log event must be returned')
+        self.assertEqual(events[0]['event_type'], 'log')
+
+        # 8. Assert Sigma stats are computed
+        status, body = self._get('/api/sigma-stats?md5=' + md5)
+        self.assertEqual(status, 200)
+        stats = json.loads(body)
+        self.assertEqual(stats['total'], 1)
+        self.assertEqual(stats['by_severity'].get('high'), 1)
+        self.assertIn('attack.t1059', stats['mitre_techniques'])
+
+        # 9. Assert temp Zircolite DB was cleaned up
+        self.assertFalse(os.path.exists(os.path.join(dir_path, '.zircolite_events.db')),
+                         'Temp Zircolite DB must be deleted after import')
+
+    @unittest.mock.patch('socrates.is_zircolite_available', return_value=False)
+    def test_analyze_log_file_zircolite_missing_writes_error(self, mock_zircolite):
+        """Log analysis with Zircolite unavailable must write .error and create empty DB."""
+        json_data = b'{"timestamp":"2024-01-01T00:00:00Z","event_type":"zircolite_missing_test"}'
+        status, body = self._post_multipart('/api/upload', 'test.json', json_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        error_path = os.path.join(dir_path, '.error')
+        db_path = os.path.join(dir_path, 'events.db')
+        for _ in range(30):
+            time.sleep(0.2)
+            if os.path.exists(error_path):
+                break
+        self.assertTrue(os.path.exists(error_path), '.error must be written when Zircolite is unavailable')
+        with open(error_path, 'r') as f:
+            error_msg = f.read()
+        self.assertIn('unavailable', error_msg.lower())
+        self.assertTrue(os.path.exists(db_path), 'events.db must be created even when Zircolite is unavailable')
+
+    @unittest.mock.patch('socrates.setup_yara_rules', return_value='/dummy/rules.yar')
+    @unittest.mock.patch('socrates.check_yara_executable', return_value=True)
+    @unittest.mock.patch('socrates.scan_single_file', side_effect=Exception('YARA fail'))
+    def test_analyze_standalone_file_yara_error_writes_error(self, mock_scan, mock_yara_exec, mock_rules):
+        """Standalone file analysis with YARA failure must write .error and create empty DB."""
+        file_data = b'MZ' + b'\x00' * 62 + b'YARA_ERROR_TEST'
+        status, body = self._post_multipart('/api/upload', 'test.exe', file_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        error_path = os.path.join(dir_path, '.error')
+        db_path = os.path.join(dir_path, 'events.db')
+        for _ in range(30):
+            time.sleep(0.2)
+            if os.path.exists(error_path):
+                break
+        self.assertTrue(os.path.exists(error_path), '.error must be written when YARA scan fails')
+        with open(error_path, 'r') as f:
+            error_msg = f.read()
+        self.assertIn('YARA scan failed', error_msg)
+        self.assertTrue(os.path.exists(db_path), 'events.db must be created with empty matches when YARA fails')
+
+    def test_reanalyze_preserves_meta(self):
+        """Re-analyzing a file must preserve the existing .meta file."""
+        import io, zipfile as zf
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x05' * 100
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('capture.pcap', pcap_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'capture.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+
+        # Wait for dir to be created by background processing
+        for _ in range(20):
+            time.sleep(0.1)
+            if os.path.exists(dir_path):
+                break
+
+        self.assertTrue(os.path.exists(meta_path), '.meta must exist after upload')
+        original_meta = None
+        with open(meta_path, 'r') as f:
+            original_meta = json.load(f)
+
+        # Simulate completed analysis by creating artifacts and removing .phase
+        with open(os.path.join(dir_path, 'eve.json'), 'w') as f:
+            f.write('{"event_type": "alert"}\n')
+        with open(os.path.join(dir_path, 'events.db'), 'w') as f:
+            f.write('')
+        phase_path = os.path.join(dir_path, '.phase')
+        if os.path.exists(phase_path):
+            os.unlink(phase_path)
+
+        # Trigger re-analyze
+        status, body = self._post('/api/reanalyze', {'md5': md5})
+        self.assertEqual(status, 200)
+
+        # .meta should be preserved (rewritten after cleanup)
+        self.assertTrue(os.path.exists(meta_path), '.meta must be preserved during re-analyze')
+        with open(meta_path, 'r') as f:
+            preserved_meta = json.load(f)
+        self.assertEqual(preserved_meta['detected_type'], original_meta['detected_type'])
+        self.assertEqual(preserved_meta['original'], original_meta['original'])
+        self.assertEqual(preserved_meta['extracted'], original_meta['extracted'])
+
+    def test_reanalyze_rewrites_meta(self):
+        """Re-analyzing must rewrite .meta with the same detected_type after cleanup."""
+        import io, zipfile as zf
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x06' * 100
+        zip_buffer = io.BytesIO()
+        with zf.ZipFile(zip_buffer, 'w') as zf_obj:
+            zf_obj.writestr('inner.pcap', pcap_data)
+        zip_data = zip_buffer.getvalue()
+        status, body = self._post_multipart('/api/upload', 'test.zip', zip_data)
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        md5 = data['md5']
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        meta_path = os.path.join(dir_path, '.meta')
+
+        # Wait for dir to be created
+        for _ in range(20):
+            time.sleep(0.1)
+            if os.path.exists(dir_path):
+                break
+
+        self.assertTrue(os.path.exists(meta_path), '.meta must exist after upload')
+
+        # Simulate completed analysis
+        with open(os.path.join(dir_path, 'eve.json'), 'w') as f:
+            f.write('{"event_type": "alert"}\n')
+        with open(os.path.join(dir_path, 'events.db'), 'w') as f:
+            f.write('')
+        phase_path = os.path.join(dir_path, '.phase')
+        if os.path.exists(phase_path):
+            os.unlink(phase_path)
+
+        # Trigger re-analyze
+        status, body = self._post('/api/reanalyze', {'md5': md5})
+        self.assertEqual(status, 200)
+
+        # Verify .meta was rewritten and still has correct detected_type
+        self.assertTrue(os.path.exists(meta_path), '.meta must exist after re-analyze')
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        self.assertEqual(meta['detected_type'], 'pcap')
+        self.assertEqual(meta['original'], 'test.zip')
+        self.assertEqual(meta['extracted'], 'inner.pcap')
+
     def test_upload_valid_zip(self):
         import io
         import zipfile as zf
@@ -795,7 +1205,7 @@ class TestAPIEndpoints(unittest.TestCase):
         upload_section = content.split("def handle_post_upload(self):")[1].split("def handle_post_load_url(self):")[0]
         self.assertIn("passwords = [b'infected']", upload_section,
                       'Must try infected password')
-        self.assertIn("re.search(r'(\d{4})-(\d{2})-(\d{2})', original_filename)", upload_section,
+        self.assertIn(r"re.search(r'(\d{4})-(\d{2})-(\d{2})', original_filename)", upload_section,
                       'Must derive date-based password from filename')
         self.assertIn("'infected_{year}{month}{day}'.encode()", upload_section,
                       'Must construct MTA-style date password')
@@ -830,6 +1240,40 @@ class TestAPIEndpoints(unittest.TestCase):
         data2 = json.loads(body2)
         self.assertEqual(data2['md5'], expected_md5,
                          'Same PCAP inside different ZIPs should produce the same MD5')
+
+    def test_upload_nested_zip_extracts_pcap(self):
+        """ZIP archives with subdirectories must be walked recursively."""
+        import io
+        import zipfile as zf
+        import hashlib
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x00' * 100
+        expected_md5 = hashlib.md5(pcap_data).hexdigest()
+
+        zip_buf = io.BytesIO()
+        with zf.ZipFile(zip_buf, 'w') as z:
+            z.writestr('subfolder/capture.pcap', pcap_data)
+        status, body = self._post_multipart('/api/upload', 'nested.zip', zip_buf.getvalue())
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['md5'], expected_md5,
+                         'Must find PCAP inside nested ZIP directory')
+
+    def test_upload_zip_case_insensitive_pcap_extension(self):
+        """ZIP extraction must match PCAP extensions case-insensitively."""
+        import io
+        import zipfile as zf
+        import hashlib
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x00' * 100
+        expected_md5 = hashlib.md5(pcap_data).hexdigest()
+
+        zip_buf = io.BytesIO()
+        with zf.ZipFile(zip_buf, 'w') as z:
+            z.writestr('capture.PCAP', pcap_data)
+        status, body = self._post_multipart('/api/upload', 'uppercase.zip', zip_buf.getvalue())
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data['md5'], expected_md5,
+                         'Must match .PCAP uppercase extension')
 
     def test_load_url_no_url_provided(self):
         status, body = self._post('/api/load-url', {})
@@ -1038,12 +1482,180 @@ class TestAPIEndpoints(unittest.TestCase):
         data = json.loads(body)
         self.assertIn('md5', data)
 
+    def test_old_analysis_without_meta_check_status_ready(self):
+        """Old analysis without .meta file must still report ready via check-status."""
+        import hashlib
+        # Create an old-style analysis directory manually (no .meta)
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x07' * 100
+        md5 = hashlib.md5(pcap_data).hexdigest()
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        os.makedirs(dir_path, exist_ok=True)
+
+        # Write a minimal events.db (old OhMyPCAP schema: just events table)
+        import sqlite3
+        conn = sqlite3.connect(os.path.join(dir_path, 'events.db'))
+        conn.executescript('''
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT,
+                src_ip TEXT,
+                src_port INTEGER,
+                dest_ip TEXT,
+                dest_port INTEGER,
+                protocol TEXT,
+                app_proto TEXT,
+                json_data TEXT
+            );
+            CREATE INDEX idx_event_type ON events(event_type);
+            CREATE INDEX idx_timestamp ON events(timestamp);
+            CREATE INDEX idx_event_type_timestamp ON events(event_type, timestamp);
+        ''')
+        conn.commit()
+        conn.close()
+
+        with open(os.path.join(dir_path, 'name.txt'), 'w') as f:
+            f.write('legacy.pcap')
+        with open(os.path.join(dir_path, 'legacy.pcap'), 'wb') as f:
+            f.write(pcap_data)
+
+        # Check status should still return ready without meta
+        status, body = self._post('/api/check-status', {'md5': md5})
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertEqual(result['status'], 'ready')
+        self.assertNotIn('meta', result, 'Old analysis must not have meta in status')
+
+    def test_old_analysis_without_meta_load_analysis_success(self):
+        """Old analysis without .meta must still load via load-analysis API."""
+        import hashlib
+        # Create an old-style analysis directory manually (no .meta)
+        pcap_data = b'\xd4\xc3\xb2\xa1' + b'\x08' * 100
+        md5 = hashlib.md5(pcap_data).hexdigest()
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        os.makedirs(dir_path, exist_ok=True)
+
+        import sqlite3
+        conn = sqlite3.connect(os.path.join(dir_path, 'events.db'))
+        conn.executescript('''
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT,
+                src_ip TEXT,
+                src_port INTEGER,
+                dest_ip TEXT,
+                dest_port INTEGER,
+                protocol TEXT,
+                app_proto TEXT,
+                json_data TEXT
+            );
+            CREATE INDEX idx_event_type ON events(event_type);
+            CREATE INDEX idx_timestamp ON events(timestamp);
+            CREATE INDEX idx_event_type_timestamp ON events(event_type, timestamp);
+        ''')
+        conn.commit()
+        conn.close()
+
+        with open(os.path.join(dir_path, 'name.txt'), 'w') as f:
+            f.write('legacy.pcap')
+        with open(os.path.join(dir_path, 'legacy.pcap'), 'wb') as f:
+            f.write(pcap_data)
+
+        # load-analysis should still succeed
+        status, body = self._get('/api/load-analysis?md5=' + md5)
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertTrue(result.get('success'))
+        self.assertEqual(result['md5'], md5)
+        self.assertIn('file_name', result)
+
+
+    def test_corrupted_db_returns_500(self):
+        """Corrupted events.db must return HTTP 500 instead of crashing the connection."""
+        import hashlib
+        md5 = hashlib.md5(b'corrupted_db_test').hexdigest()
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        os.makedirs(dir_path, exist_ok=True)
+        # Write random bytes (not a valid SQLite file)
+        with open(os.path.join(dir_path, 'events.db'), 'wb') as f:
+            f.write(b'\x00\x01\x02\x03NOT_A_VALID_DB')
+        status, body = self._get('/api/events?md5=' + md5)
+        self.assertEqual(status, 500, 'Corrupted DB must return 500')
+        result = json.loads(body)
+        self.assertIn('Database error', result.get('error', ''))
+
+    def test_malformed_json_data_row_skipped(self):
+        """Malformed json_data in events table must be skipped, not crash the endpoint."""
+        import hashlib
+        md5 = hashlib.md5(b'malformed_json_test').hexdigest()
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        os.makedirs(dir_path, exist_ok=True)
+        conn = sqlite3.connect(os.path.join(dir_path, 'events.db'))
+        conn.executescript('''
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp TEXT,
+                src_ip TEXT,
+                src_port INTEGER,
+                dest_ip TEXT,
+                dest_port INTEGER,
+                protocol TEXT,
+                app_proto TEXT,
+                json_data TEXT
+            );
+            CREATE INDEX idx_event_type ON events(event_type);
+            CREATE INDEX idx_timestamp ON events(timestamp);
+            CREATE INDEX idx_event_type_timestamp ON events(event_type, timestamp);
+        ''')
+        conn.execute('''INSERT INTO events (event_type, timestamp, json_data)
+                          VALUES (?, ?, ?)''', ('alert', '2026-01-01T00:00:00', '{"valid": true}'))
+        conn.execute('''INSERT INTO events (event_type, timestamp, json_data)
+                          VALUES (?, ?, ?)''', ('dns', '2026-01-01T00:00:01', 'not valid json'))
+        conn.execute('''INSERT INTO events (event_type, timestamp, json_data)
+                          VALUES (?, ?, ?)''', ('http', '2026-01-01T00:00:02', '{"valid": true}'))
+        conn.commit()
+        conn.close()
+        status, body = self._get('/api/events?md5=' + md5)
+        self.assertEqual(status, 200, 'Malformed row must not crash endpoint')
+        events = json.loads(body)
+        self.assertEqual(len(events), 3, 'All rows must be returned (malformed ones as empty objects)')
+        self.assertEqual(events[0].get('valid'), True)
+        self.assertEqual(events[1], {}, 'Malformed json_data must become empty object')
+        self.assertEqual(events[2].get('valid'), True)
+
+    def test_api_status_get_alias_works(self):
+        """GET /api/status must behave identically to POST /api/check-status."""
+        import hashlib
+        md5 = hashlib.md5(b'status_alias_test').hexdigest()
+        dir_path = os.path.join(server.DATA_DIR, md5)
+        os.makedirs(dir_path, exist_ok=True)
+        conn = sqlite3.connect(os.path.join(dir_path, 'events.db'))
+        conn.executescript(db.SQLITE_SCHEMA)
+        conn.commit()
+        conn.close()
+        with open(os.path.join(dir_path, 'name.txt'), 'w') as f:
+            f.write('test.pcap')
+
+        # GET /api/status
+        status_get, body_get = self._get('/api/status?md5=' + md5)
+        self.assertEqual(status_get, 200)
+        result_get = json.loads(body_get)
+
+        # POST /api/check-status
+        status_post, body_post = self._post('/api/check-status', {'md5': md5})
+        self.assertEqual(status_post, 200)
+        result_post = json.loads(body_post)
+
+        self.assertEqual(result_get['status'], result_post['status'])
+
 
 class TestSpawnSuricataErrorHandling(unittest.TestCase):
     def test_spawn_suricata_writes_error_on_failure(self):
         """Behavioral: spawn_suricata must write .error file when subprocess fails."""
         import unittest.mock
-        from suricata import spawn_suricata
+        from suricata_analyzer import spawn_suricata
         with tempfile.TemporaryDirectory() as tmpdir:
             pcap_path = os.path.join(tmpdir, 'test.pcap')
             with open(pcap_path, 'wb') as f:
@@ -1122,7 +1734,7 @@ class TestSizeLimitMessages(unittest.TestCase):
 
 class TestHTMLNoDuplicateFunctions(unittest.TestCase):
     def test_no_duplicate_html_functions(self):
-        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
+        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.html')
         with open(html_file, 'r') as f:
             content = f.read()
         import re
@@ -1143,7 +1755,7 @@ class TestPythonNoBareExcept(unittest.TestCase):
 
 class TestSuricataConfigRulesPath(unittest.TestCase):
     def test_suricata_yaml_uses_custom_rules_path(self):
-        suricata_dir = os.path.expanduser('~/ohmypcap-data/suricata')
+        suricata_dir = os.path.expanduser('~/socrates-data/suricata')
         suricata_config = os.path.join(suricata_dir, 'suricata.yaml')
         
         # Skip if config doesn't exist (may not be set up yet)
@@ -1154,8 +1766,8 @@ class TestSuricataConfigRulesPath(unittest.TestCase):
             content = f.read()
         
         # Verify default-rule-path points to a custom directory
-        # (may be ~/ohmypcap-data/suricata/rules for native or /data/suricata/rules for container)
-        native_path = os.path.expanduser('~/ohmypcap-data/suricata/rules')
+        # (may be ~/socrates-data/suricata/rules for native or /data/suricata/rules for container)
+        native_path = os.path.expanduser('~/socrates-data/suricata/rules')
         container_path = '/data/suricata/rules'
         self.assertTrue(native_path in content or container_path in content,
                         f'suricata.yaml should use custom rules path (either {native_path} or {container_path})')
@@ -1300,18 +1912,18 @@ class TestSuricataProcessingLock(unittest.TestCase):
     def test_stale_phase_handled_in_check_status(self):
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
-        check_status = content.split("def handle_post_check_status(self):")[1].split("def handle_post_reanalyze(self):")[0]
-        self.assertIn("lock_age", check_status)
-        self.assertIn("STALE_THRESHOLD_SECONDS", check_status)
-        self.assertIn("'phase': phase", check_status)
+        status_helper = content.split("def _build_status_response(self, dir_path):")[1].split("def handle_get_status(self, params):")[0]
+        self.assertIn("lock_age", status_helper)
+        self.assertIn("STALE_THRESHOLD_SECONDS", status_helper)
+        self.assertIn("response['phase'] = phase", status_helper)
 
     def test_stale_error_handled_in_check_status(self):
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
-        check_status = content.split("def handle_post_check_status(self):")[1].split("def handle_post_reanalyze(self):")[0]
-        self.assertIn("error_age", check_status)
-        self.assertIn("'status': 'error'", check_status)
-        self.assertIn("'message': error_msg", check_status)
+        status_helper = content.split("def _build_status_response(self, dir_path):")[1].split("def handle_get_status(self, params):")[0]
+        self.assertIn("error_age", status_helper)
+        self.assertIn("'status': 'error'", status_helper)
+        self.assertIn("'message': error_msg", status_helper)
 
 
 class TestNameTxtPathSafety(unittest.TestCase):
@@ -1360,11 +1972,11 @@ class TestReanalyzeEndpoint(unittest.TestCase):
                       'POST /api/reanalyze endpoint must exist')
 
     def test_reanalyze_deletes_analysis_artifacts(self):
-        """Verify reanalyze removes eve.json, events.db, .phase, .error, and yara_matches.json."""
+        """Verify reanalyze removes eve.json, events.db, .phase, .error, yara_matches.json, sigma_matches.json, and .meta."""
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
         reanalyze_section = content.split("def handle_post_reanalyze(self):")[1]
-        self.assertIn("for artifact in ('eve.json', 'events.db', '.phase', '.error', 'yara_matches.json'):", reanalyze_section,
+        self.assertIn("for artifact in ('eve.json', 'events.db', '.phase', '.error', 'yara_matches.json', 'sigma_matches.json', '.meta'):", reanalyze_section,
                       'reanalyze must loop over analysis artifacts to delete')
         self.assertIn('os.unlink(artifact_path)', reanalyze_section,
                       'reanalyze must unlink artifact files')
@@ -1389,6 +2001,18 @@ class TestReanalyzeEndpoint(unittest.TestCase):
                       'reanalyze must look for non-PCAP files')
         self.assertIn("self._analyze_standalone_file", reanalyze_section,
                       'reanalyze must support standalone file re-analysis')
+        self.assertIn("self._analyze_log_file", reanalyze_section,
+                      'reanalyze must support log file re-analysis')
+
+    def test_reanalyze_excludes_zircolite_artifacts(self):
+        """Verify reanalyze excludes zircolite.log and .zircolite_events.db from file selection."""
+        with open(SERVER_FILE, 'r') as f:
+            content = f.read()
+        reanalyze_section = content.split("def handle_post_reanalyze(self):")[1]
+        self.assertIn("'zircolite.log'", reanalyze_section,
+                      'reanalyze must exclude zircolite.log from non_pcap_files')
+        self.assertIn("'.zircolite_events.db'", reanalyze_section,
+                      'reanalyze must exclude .zircolite_events.db from non_pcap_files')
 
     def test_reanalyze_returns_409_if_already_processing(self):
         """Verify reanalyze returns 409 when analysis is already in progress."""
@@ -1474,21 +2098,19 @@ class TestServerStartupBanner(unittest.TestCase):
             content = f.read()
         
         # Check for banner elements
-        self.assertIn('Welcome to OhMyPCAP', content)
-        self.assertIn('Analyze files from the web or your local collection', content)
-        self.assertIn('View alerts and then slice and dice your network metadata', content)
+        self.assertIn('Welcome to SO-CRATES', content)
 
     def test_running_message_has_border(self):
         """Verify the running message is wrapped in a border matching the welcome banner"""
         with open(SERVER_FILE, 'r') as f:
             content = f.read()
-        self.assertIn('OhMyPCAP running', content)
+        self.assertIn('SO-CRATES running', content)
         self.assertIn('================================================', content)
 
 
 class TestHTMLNoEmptyFunctions(unittest.TestCase):
     def test_no_empty_functions(self):
-        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
+        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.html')
         with open(html_file, 'r') as f:
             content = f.read()
         import re
@@ -1499,7 +2121,7 @@ class TestHTMLNoEmptyFunctions(unittest.TestCase):
 
 class TestHTMLNoOldStyleFilterEscaping(unittest.TestCase):
     def test_no_old_style_filter_escaping(self):
-        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
+        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.html')
         with open(html_file, 'r') as f:
             content = f.read()
         vulnerable_pattern = r'clearFilter.*col\.replace\(/\'/g'
@@ -1512,8 +2134,8 @@ class TestHTMLNoOldStyleFilterEscaping(unittest.TestCase):
 
 class TestHTMLModalCSS(unittest.TestCase):
     def test_loading_modal_exists(self):
-        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ohmypcap.html')
-        css_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'ohmypcap.css')
+        html_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'socrates.html')
+        css_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'socrates.css')
         with open(html_file, 'r') as f:
             html_content = f.read()
         with open(css_file, 'r') as f:
@@ -1555,13 +2177,13 @@ class TestExecutableChecks(unittest.TestCase):
         self.assertIn('suricata', server.REQUIRED_EXECUTABLES)
         self.assertIn('suricata-update', server.REQUIRED_EXECUTABLES)
 
-    @unittest.mock.patch('suricata.shutil.which')
+    @unittest.mock.patch('suricata_analyzer.shutil.which')
     def test_check_executables_all_missing(self, mock_which):
         mock_which.return_value = None
         missing = server.check_executables()
         self.assertEqual(len(missing), 4)
 
-    @unittest.mock.patch('suricata.shutil.which')
+    @unittest.mock.patch('suricata_analyzer.shutil.which')
     def test_check_executables_some_present(self, mock_which):
         def which_side_effect(cmd):
             if cmd in ['tcpdump', 'tshark']:
@@ -1627,27 +2249,27 @@ class TestSuricataFileStoreConfig(unittest.TestCase):
 
 
 class TestYaraScannerModule(unittest.TestCase):
-    def test_yara_scanner_exists(self):
-        yara_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yara_scanner.py')
-        self.assertTrue(os.path.exists(yara_path), 'yara_scanner.py must exist')
+    def test_yara_analyzer_exists(self):
+        yara_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yara_analyzer.py')
+        self.assertTrue(os.path.exists(yara_path), 'yara_analyzer.py must exist')
 
     def test_check_yara_executable_exists(self):
-        import yara_scanner
-        self.assertTrue(hasattr(yara_scanner, 'check_yara_executable'))
+        import yara_analyzer
+        self.assertTrue(hasattr(yara_analyzer, 'check_yara_executable'))
 
     def test_setup_yara_rules_exists(self):
-        import yara_scanner
-        self.assertTrue(hasattr(yara_scanner, 'setup_yara_rules'))
+        import yara_analyzer
+        self.assertTrue(hasattr(yara_analyzer, 'setup_yara_rules'))
 
     def test_run_yara_pipeline_exists(self):
-        import yara_scanner
-        self.assertTrue(hasattr(yara_scanner, 'run_yara_pipeline'))
+        import yara_analyzer
+        self.assertTrue(hasattr(yara_analyzer, 'run_yara_pipeline'))
 
     def test_parse_yara_output_with_tags_and_meta(self):
         """Verify parser handles YARA output with both tags and metadata."""
-        import yara_scanner
+        import yara_analyzer
         output = 'TestRule [SUSP,MALWARE] [description="test desc",author="tester"] /tmp/filestore/ab/abc123'
-        matches = yara_scanner._parse_yara_output(output, '/tmp/filestore')
+        matches = yara_analyzer._parse_yara_output(output, '/tmp/filestore')
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]['rule_name'], 'TestRule')
         self.assertEqual(matches[0]['tags'], ['SUSP', 'MALWARE'])
@@ -1655,9 +2277,9 @@ class TestYaraScannerModule(unittest.TestCase):
 
     def test_parse_yara_output_empty_tags_with_meta(self):
         """Verify parser handles empty tags section with metadata (YARA-Rules style)."""
-        import yara_scanner
+        import yara_analyzer
         output = 'Delphi_Random [] [author="_pusher_",date="2015-08"] /tmp/filestore/ab/abc123'
-        matches = yara_scanner._parse_yara_output(output, '/tmp/filestore')
+        matches = yara_analyzer._parse_yara_output(output, '/tmp/filestore')
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]['rule_name'], 'Delphi_Random')
         self.assertEqual(matches[0]['tags'], [])
@@ -1747,6 +2369,124 @@ class TestReadPostBody(unittest.TestCase):
         result = handler._read_post_body(config.MAX_UPLOAD_SIZE)
         self.assertEqual(result, b'a' * 10)
         handler._send_error.assert_not_called()
+
+
+DOCKERFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Dockerfile')
+DOCKER_COMPOSE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docker-compose.yml')
+DOCKER_COMPOSE_PODMAN = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docker-compose.podman.yml')
+
+
+class TestDockerfile(unittest.TestCase):
+    def test_dockerfile_installs_zircolite_via_git(self):
+        """Dockerfile must install Zircolite via git clone, not pip."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('git clone', content, 'Dockerfile must clone Zircolite from GitHub')
+        self.assertNotIn('pip3 install zircolite', content.lower(),
+                          'Dockerfile must not use pip to install Zircolite')
+
+    def test_dockerfile_installs_zircolite_in_venv(self):
+        """Dockerfile must install Zircolite dependencies in an isolated Python venv."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('python3-venv', content,
+                      'Dockerfile must install python3-venv package')
+        self.assertIn('python3 -m venv /usr/local/lib/zircolite-venv', content,
+                      'Dockerfile must create a zircolite virtual environment')
+        self.assertIn('/usr/local/lib/zircolite-venv/bin/pip install', content,
+                      'Dockerfile must install Zircolite deps into the venv')
+        self.assertIn('requirements.txt', content,
+                      'Dockerfile must install Zircolite requirements.txt')
+
+    def test_dockerfile_copies_socrates_files(self):
+        """Dockerfile must copy all SO-CRATES source files."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('socrates.py', content, 'Dockerfile must copy socrates.py')
+        self.assertIn('socrates.html', content, 'Dockerfile must copy socrates.html')
+        self.assertIn('suricata_analyzer.py', content, 'Dockerfile must copy suricata_analyzer.py')
+        self.assertIn('yara_analyzer.py', content, 'Dockerfile must copy yara_analyzer.py')
+        self.assertIn('sigma_analyzer.py', content, 'Dockerfile must copy sigma_analyzer.py')
+        self.assertIn('file_analyzer.py', content, 'Dockerfile must copy file_analyzer.py')
+        self.assertIn('exif_analyzer.py', content, 'Dockerfile must copy exif_analyzer.py')
+
+    def test_dockerfile_has_python_build_dependencies(self):
+        """Dockerfile must install build tools for compiling Python packages."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('build-essential', content, 'Dockerfile must install build-essential')
+        self.assertIn('python3-dev', content, 'Dockerfile must install python3-dev')
+        self.assertIn('rustc', content, 'Dockerfile must install rustc')
+        self.assertIn('cargo', content, 'Dockerfile must install cargo')
+        self.assertIn('libxml2-dev', content, 'Dockerfile must install libxml2-dev')
+        self.assertIn('libxslt1-dev', content, 'Dockerfile must install libxslt1-dev')
+
+    def test_dockerfile_venv_owned_by_app_user(self):
+        """Dockerfile must chown the Zircolite venv so the non-root user can use it."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('chown -R 1000:1000 /usr/local/lib/zircolite-venv', content,
+                      'Dockerfile must set venv ownership to the app user')
+
+    def test_dockerfile_exposes_port_8000(self):
+        """Dockerfile must expose port 8000."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('EXPOSE 8000', content, 'Dockerfile must expose port 8000')
+
+    def test_dockerfile_uses_correct_data_dir(self):
+        """Dockerfile must set DATA_DIR=/data."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('ENV DATA_DIR=/data', content, 'Dockerfile must set DATA_DIR')
+
+    def test_docker_compose_uses_so_crates_image(self):
+        """docker-compose.yml must reference the SO-CRATES image."""
+        with open(DOCKER_COMPOSE, 'r') as f:
+            content = f.read()
+        self.assertIn('ghcr.io/dougburks/so-crates', content,
+                      'docker-compose must use SO-CRATES image')
+        self.assertNotIn('ohmypcap', content.lower(),
+                         'docker-compose must not reference old OhMyPCAP image')
+
+    def test_docker_compose_maps_port_8000(self):
+        """docker-compose.yml must map host port 8000 to container port 8000."""
+        with open(DOCKER_COMPOSE, 'r') as f:
+            content = f.read()
+        self.assertIn('"8000:8000"', content, 'docker-compose must map port 8000')
+
+    def test_docker_compose_uses_socrates_data_volume(self):
+        """docker-compose.yml must mount ./socrates-data to /data."""
+        with open(DOCKER_COMPOSE, 'r') as f:
+            content = f.read()
+        self.assertIn('/data', content, 'docker-compose must mount data volume')
+
+    def test_docker_compose_podman_exists(self):
+        """docker-compose.podman.yml must exist for Podman users."""
+        self.assertTrue(os.path.exists(DOCKER_COMPOSE_PODMAN),
+                        'docker-compose.podman.yml must exist')
+
+    def test_docker_compose_podman_extends_base(self):
+        """docker-compose.podman.yml must extend docker-compose.yml service."""
+        with open(DOCKER_COMPOSE_PODMAN, 'r') as f:
+            content = f.read()
+        self.assertIn('extends:', content,
+                        'podman compose file must use extends')
+        self.assertIn('file: docker-compose.yml', content,
+                        'podman compose file must extend docker-compose.yml')
+        self.assertIn('service: so-crates', content,
+                        'podman compose file must extend so-crates service')
+
+    def test_docker_compose_podman_has_user_and_userns(self):
+        """docker-compose.podman.yml must set user and userns_mode for host ownership."""
+        with open(DOCKER_COMPOSE_PODMAN, 'r') as f:
+            content = f.read()
+        self.assertIn('user:', content,
+                        'podman compose file must set user')
+        self.assertIn('userns_mode:', content,
+                        'podman compose file must set userns_mode')
+        self.assertIn('keep-id', content,
+                        'podman compose file must use keep-id userns_mode')
 
 
 if __name__ == '__main__':
