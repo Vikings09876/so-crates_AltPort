@@ -1,6 +1,8 @@
 # SO-CRATES
 
-A standalone web application for analyzing network traffic (PCAP), log files, and binary files. Features include Suricata network analysis, YARA binary scanning, Sigma rule detection for logs, and a single-page UI for browsing alerts, metadata, transcripts, and hexdumps.
+Security Onion Containerized Rapid Analysis of Threats, Evil, and Sus
+
+A standalone web application for analyzing pcap files, log files, and binary files. Features include Suricata network analysis, YARA binary scanning, Sigma rule detection for logs, and a single-page UI for browsing alerts, metadata, transcripts, and hexdumps.
 
 ## Screenshots
 
