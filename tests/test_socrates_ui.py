@@ -47,7 +47,11 @@ class TestHTMLStructure(unittest.TestCase):
     def test_no_inline_script_block(self):
         """HTML must not contain inline <script> blocks after split."""
         inline_script = re.search(r'<script[^>]*>(?!\s*</script>)', HTML_CONTENT)
-        self.assertIsNone(inline_script, 'Inline <script> block found in HTML')
+        if inline_script:
+            # Allow the small FOUC-prevention theme script in <head>
+            snippet = HTML_CONTENT[inline_script.start():inline_script.start()+200]
+            if 'data-theme' not in snippet:
+                self.fail('Inline <script> block found in HTML')
 
     def test_static_files_exist(self):
         """static/socrates.css and static/socrates.js must exist on disk."""
@@ -831,6 +835,73 @@ class TestAccessibility(unittest.TestCase):
         self.assertIn('title="', JS_CONTENT)
 
 
+class TestThemeAndMenu(unittest.TestCase):
+    def test_toggleTheme_exists(self):
+        self.assertIn('function toggleTheme(', JS_CONTENT,
+                      'toggleTheme function must exist')
+
+    def test_toggleMenu_exists(self):
+        self.assertIn('function toggleMenu(', JS_CONTENT,
+                      'toggleMenu function must exist')
+
+    def test_closeMenu_exists(self):
+        self.assertIn('function closeMenu(', JS_CONTENT,
+                      'closeMenu function must exist')
+
+    def test_menu_dropdown_in_html(self):
+        self.assertIn('id="appHeaderMenuDropdown"', HTML_CONTENT,
+                      'Menu dropdown container must exist in HTML')
+
+    def test_theme_toggle_in_menu(self):
+        self.assertIn('onclick="toggleTheme()"', HTML_CONTENT,
+                      'Theme toggle button must be inside the menu')
+
+    def test_help_in_menu_not_standalone(self):
+        self.assertIn('onclick="showHelpModal(); closeMenu();"', HTML_CONTENT,
+                      'Help button must be inside the menu dropdown')
+
+    def test_css_theme_variables_exist(self):
+        self.assertIn('--bg-primary:', CSS_CONTENT,
+                      'CSS must define --bg-primary custom property')
+        self.assertIn('--text-primary:', CSS_CONTENT,
+                      'CSS must define --text-primary custom property')
+        self.assertIn('--accent:', CSS_CONTENT,
+                      'CSS must define --accent custom property')
+
+    def test_light_theme_override_exists(self):
+        self.assertIn('[data-theme="light"]', CSS_CONTENT,
+                      'CSS must have a light theme override block')
+
+    def test_escape_closes_menu(self):
+        self.assertIn('closeMenu();', JS_CONTENT,
+                      'Escape key handler must call closeMenu()')
+
+    def test_localStorage_theme_persistence(self):
+        self.assertIn("localStorage.setItem('socrates-theme'", JS_CONTENT,
+                      'Theme choice must be persisted to localStorage')
+
+    def test_fouc_prevention_script_exists(self):
+        self.assertIn('data-theme', HTML_CONTENT,
+                      'HTML must have FOUC-prevention theme script')
+
+    def test_gear_icon_button_exists(self):
+        self.assertIn('class="app-header-menu-btn"', HTML_CONTENT,
+                      'Gear icon menu button must exist')
+
+    def test_no_standalone_help_button(self):
+        """Ensure the old standalone Help button is removed from the header."""
+        header_right = HTML_CONTENT.split('id="appHeaderRight"')[1].split('</div>')[0]
+        self.assertNotIn('class="app-header-help"', header_right,
+                         'Standalone Help button must not exist in appHeaderRight')
+
+    def test_magnifying_glass_uses_accent_color(self):
+        """Magnifying glass SVG must use theme-aware color so it matches accent."""
+        header_left = HTML_CONTENT.split('class="app-header-left"')[1].split('</div>')[0]
+        svg_section = header_left.split('<svg')[1].split('</svg>')[0]
+        self.assertTrue('stroke="currentColor"' in svg_section or 'stroke="var(--accent)"' in svg_section,
+                        'Magnifying glass SVG must use currentColor or var(--accent) for theme adaptability')
+
+
 class TestAggregationTables(unittest.TestCase):
     def test_has_agg_grid_css(self):
         self.assertIn('.agg-grid', CSS_CONTENT)
@@ -1016,7 +1087,7 @@ class TestAggregationTables(unittest.TestCase):
         self.assertNotIn('.agg-bar', CSS_CONTENT)
 
     def test_agg_tables_have_borders(self):
-        self.assertIn('border: 1px solid #30363d', CSS_CONTENT)
+        self.assertIn('border: 1px solid var(--bg-hover)', CSS_CONTENT)
 
     def test_agg_tables_wrap_with_flex(self):
         self.assertIn('flex-wrap: wrap', CSS_CONTENT)
@@ -1864,7 +1935,7 @@ class TestReanalyzeUI(unittest.TestCase):
         """Welcome screen must show a re-analyze button next to each previous PCAP."""
         self.assertIn('openReanalyzeModal', JS_CONTENT,
                       'showWelcome must include re-analyze button')
-        self.assertIn('🔄', JS_CONTENT,
+        self.assertIn('REFRESH_ICON_SVG', JS_CONTENT,
                       'Re-analyze button must use refresh icon')
 
     def test_reanalyze_modal_exists(self):

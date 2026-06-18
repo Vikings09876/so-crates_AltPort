@@ -18,6 +18,44 @@
             });
         }
 
+        function toggleTheme() {
+            const html = document.documentElement;
+            const isLight = html.getAttribute('data-theme') === 'light';
+            if (isLight) {
+                html.removeAttribute('data-theme');
+                localStorage.setItem('socrates-theme', 'dark');
+            } else {
+                html.setAttribute('data-theme', 'light');
+                localStorage.setItem('socrates-theme', 'light');
+            }
+            updateThemeMenuLabel();
+        }
+
+        function updateThemeMenuLabel() {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            const icon = document.getElementById('themeMenuIcon');
+            const label = document.getElementById('themeMenuLabel');
+            if (icon) icon.textContent = isLight ? '☀️' : '🌙';
+            if (label) label.textContent = isLight ? 'Light Theme' : 'Dark Theme';
+        }
+
+        function toggleMenu() {
+            const dropdown = document.getElementById('appHeaderMenuDropdown');
+            if (dropdown) dropdown.classList.toggle('active');
+        }
+
+        function closeMenu() {
+            const dropdown = document.getElementById('appHeaderMenuDropdown');
+            if (dropdown) dropdown.classList.remove('active');
+        }
+
+        document.addEventListener('click', function(e) {
+            const menu = document.querySelector('.app-header-menu');
+            if (menu && !menu.contains(e.target)) {
+                closeMenu();
+            }
+        });
+
         const COLORS = {
             EVENT: {
                 alert: '#ff6b6b',
@@ -43,7 +81,7 @@
             },
             FILE_ALERT: {
                 bg: '#e91e6322',
-                text: '#ff8a8a',
+                text: 'var(--file-alert-text)',
             },
         };
         const CONFIG = {
@@ -57,47 +95,54 @@
             SANKEY_BOTTOM_MARGIN: 60,
         };
         const DEFAULT_SAMPLE_URL = 'https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip';
+        const FILE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+        const REFRESH_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
+        const DELETE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        const FOLDER_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+        const FOLDER_OPEN_ICON_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><polyline points="2 13 6 9 10 13"></polyline></svg>';
+        const DOWN_ARROW_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>';
+        const CHECKMARK_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
         const WELCOME_HELP_CONTENT = `
-            <p style="color: #8b949e; font-size: 0.95rem;">
+            <p style="color: var(--text-muted); font-size: 0.95rem;">
                 💡 Maximum file size is 1000MB.
             </p>
-            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin-top: 15px;">
                 💡 Processing may take a minute or two depending on the size of the file.
             </p>
-            <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin-top: 15px;">
                 💡 File types supported:
             </p>
-            <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.9rem; color: #c9d1d9;">
+            <table style="width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.9rem; color: var(--text-primary);">
                 <thead>
-                    <tr style="border-bottom: 1px solid #30363d;">
-                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 18%;">File Type</th>
-                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 40%;">File Extensions</th>
-                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 18%;">Engine</th>
-                        <th style="text-align: left; padding: 8px 12px; color: #8b949e; font-weight: 600; width: 24%;">Ruleset</th>
+                    <tr style="border-bottom: 1px solid var(--bg-hover);">
+                        <th style="text-align: left; padding: 8px 12px; color: var(--text-muted); font-weight: 600; width: 18%;">File Type</th>
+                        <th style="text-align: left; padding: 8px 12px; color: var(--text-muted); font-weight: 600; width: 40%;">File Extensions</th>
+                        <th style="text-align: left; padding: 8px 12px; color: var(--text-muted); font-weight: 600; width: 18%;">Engine</th>
+                        <th style="text-align: left; padding: 8px 12px; color: var(--text-muted); font-weight: 600; width: 24%;">Ruleset</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr style="border-bottom: 1px solid #21262d; background: rgba(255, 107, 107, 0.05);">
-                        <td style="padding: 8px 12px;"><strong style="color: #ff6b6b;">Packet Capture</strong></td>
+                    <tr style="border-bottom: 1px solid var(--bg-tertiary); background: rgba(255, 107, 107, 0.05);">
+                        <td style="padding: 8px 12px;"><strong style="color: var(--welcome-red);">Packet Capture</strong></td>
                         <td style="padding: 8px 12px;">.pcap, .pcapng, .cap, .trace</td>
                         <td style="padding: 8px 12px;">Suricata</td>
                         <td style="padding: 8px 12px;">Emerging Threats Open</td>
                     </tr>
-                    <tr style="border-bottom: 1px solid #21262d; background: rgba(255, 167, 38, 0.05);">
-                        <td style="padding: 8px 12px;"><strong style="color: #ffa726;">Logs</strong></td>
+                    <tr style="border-bottom: 1px solid var(--bg-tertiary); background: rgba(255, 167, 38, 0.05);">
+                        <td style="padding: 8px 12px;"><strong style="color: var(--welcome-orange);">Logs</strong></td>
                         <td style="padding: 8px 12px;">.evtx, .json, .jsonl, .csv, .xml, .log</td>
                         <td style="padding: 8px 12px;">Zircolite</td>
                         <td style="padding: 8px 12px;">SigmaHQ</td>
                     </tr>
                     <tr style="background: rgba(255, 202, 40, 0.05);">
-                        <td style="padding: 8px 12px;"><strong style="color: #ffca28;">Binary / Other</strong></td>
+                        <td style="padding: 8px 12px;"><strong style="color: var(--welcome-yellow);">Binary / Other</strong></td>
                         <td style="padding: 8px 12px;">.exe, .dll, .elf, .pdf, etc.</td>
                         <td style="padding: 8px 12px;">YARA</td>
                         <td style="padding: 8px 12px;">YARA Forge</td>
                     </tr>
                 </tbody>
             </table>
-            <p style="color: #8b949e; font-size: 0.85rem; margin-top: 8px; margin-bottom: 0;">
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; margin-bottom: 0;">
                 Any of the above file types can be uploaded inside a .zip archive to automatically extract and analyze the first supported file found.
             </p>
         `;
@@ -106,17 +151,17 @@
             const t = (tag || '').toUpperCase();
             let bg, text;
             if (['RANSOMWARE','TROJAN','BACKDOOR','MALWARE','BOTNET'].includes(t)) {
-                bg = '#ff6b6b22'; text = '#ff6b6b';
+                bg = '#ff6b6b22'; text = 'var(--tag-red-text)';
             } else if (['STORMBAMBOO','CHARMINGKITTEN','TURLA','LAZARUS','PLATINUM','HATMAN','CHARMINGCYPRESS','INKYPINE','INKYSQUID','EVILBAMBOO','TRANSPARENTJASMINE','UTA0040','WHEELEDASH'].includes(t)) {
-                bg = '#ba68c822'; text = '#ba68c8';
+                bg = '#ba68c822'; text = 'var(--tag-purple-text)';
             } else if (t.startsWith('CVE_')) {
-                bg = '#ffa72622'; text = '#ffa726';
+                bg = '#ffa72622'; text = 'var(--tag-orange-text)';
             } else if (['FILE','MEMORY','SCRIPT','LOG'].includes(t)) {
-                bg = '#42a5f522'; text = '#42a5f5';
+                bg = '#42a5f522'; text = 'var(--tag-blue-text)';
             } else if (['INFO','UTILITY','HIGHVOL'].includes(t)) {
-                bg = '#9e9e9e22'; text = '#9e9e9e';
+                bg = '#9e9e9e22'; text = 'var(--tag-gray-text)';
             } else {
-                bg = '#66bb6a22'; text = '#66bb6a';
+                bg = '#66bb6a22'; text = 'var(--tag-green-text)';
             }
             return `<span class="badge" style="background:${bg};color:${text};margin-right:4px;">${escapeHtml(tag)}</span>`;
         }
@@ -256,7 +301,7 @@
                             const dstPort = parts[3];
                             const pre = asciiDiv.querySelector('.ascii-transcript');
                             if (pre && !pre.innerHTML) {
-                                pre.innerHTML = '<div style="color:#8b949e;padding:10px 0;display:flex;align-items:center;gap:8px;"><span class="ascii-loading"></span>Loading ASCII transcript...</div>';
+                                pre.innerHTML = '<div style="color:var(--text-muted);padding:10px 0;display:flex;align-items:center;gap:8px;"><span class="ascii-loading"></span>Loading ASCII transcript...</div>';
                                 loadAsciiTranscript(srcIp, srcPort, dstIp, dstPort, pre);
                             }
                         }
@@ -295,7 +340,7 @@
                         }
                         pre.innerHTML = html;
                         if (data.truncated) {
-                            pre.innerHTML += '<div style="margin-top:10px;color:#8b949e;font-style:italic;">[Truncated - stream too large. Use Download PCAP to view full capture.]</div>';
+                            pre.innerHTML += '<div style="margin-top:10px;color:var(--text-muted);font-style:italic;">[Truncated - stream too large. Use Download PCAP to view full capture.]</div>';
                         }
                         return;
                     }
@@ -323,7 +368,7 @@
                 asciiEl.style.display = 'none';
                 hexdumpEl.style.display = '';
                 if (hexdumpEl.dataset.loaded !== 'true') {
-                    hexdumpEl.innerHTML = '<div style="color:#8b949e;padding:10px 0;"><span class="ascii-loading"></span>Loading hexdump...</div>';
+                    hexdumpEl.innerHTML = '<div style="color:var(--text-muted);padding:10px 0;"><span class="ascii-loading"></span>Loading hexdump...</div>';
                     await loadHexdumpData(src, sport, dst, dport, hexdumpEl);
                 }
             } else {
@@ -361,13 +406,13 @@
                     });
                     
                     if (data.truncated) {
-                        html += '<div style="margin-top:10px;color:#8b949e;font-style:italic;">[Truncated - stream too large. Use Download PCAP to view full capture.]</div>';
+                        html += '<div style="margin-top:10px;color:var(--text-muted);font-style:italic;">[Truncated - stream too large. Use Download PCAP to view full capture.]</div>';
                     }
                     
                     container.innerHTML = html;
                     container.dataset.loaded = 'true';
                 } else {
-                    container.innerHTML = '<div style="color:#8b949e;">No packets found</div>';
+                    container.innerHTML = '<div style="color:var(--text-muted);">No packets found</div>';
                     container.dataset.loaded = 'true';
                 }
             } catch(err) {
@@ -396,7 +441,7 @@
         function htmlRow(label, innerHtml, className, style) {
             const cls = className ? ` class="${className}"` : '';
             const sty = style ? ` style="${style}"` : '';
-            return `<span style="color: #8b949e;">${escapeHtml(label)}</span><span${cls}${sty}>${innerHtml}</span>`;
+            return `<span style="color: var(--text-muted);">${escapeHtml(label)}</span><span${cls}${sty}>${innerHtml}</span>`;
         }
         
         function htmlRowText(label, text, className, style) {
@@ -407,13 +452,13 @@
             const s = String(value || '').trim();
             const lower = s.toLowerCase();
             if (lower.startsWith('http://') || lower.startsWith('https://')) {
-                return `${escapeHtml(s)} <a href="${escapeHtml(s)}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; margin-left: 4px; font-size: 0.8em;">↗</a>`;
+                return `${escapeHtml(s)} <a href="${escapeHtml(s)}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; margin-left: 4px; font-size: 0.8em;">↗</a>`;
             }
             return escapeHtml(s);
         }
 
         function htmlSection(title, color) {
-            return `<span style="color: #8b949e; margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid #30363d; padding-bottom: 5px; color: ${color};">${escapeHtml(title)}</span>`;
+            return `<span style="color: var(--text-muted); margin-top: 10px; grid-column: 1 / -1; border-bottom: 1px solid var(--bg-hover); padding-bottom: 5px; color: ${color};">${escapeHtml(title)}</span>`;
         }
 
         function renderMetadataRows(meta) {
@@ -447,7 +492,7 @@
             if (!e.src_ip || !e.src_port || !e.dest_ip || !e.dest_port) return '';
             const srcIpJs = escapeJsString(e.src_ip);
             const dstIpJs = escapeJsString(e.dest_ip);
-            return `<div id="ascii-${e.src_ip}-${e.src_port}-${e.dest_ip}-${e.dest_port}" style="margin-top: 15px;"><div style="color: #8b949e; font-size: 0.85rem; border-bottom: 1px solid #30363d; padding-bottom: 5px; margin-bottom: 5px;">Payload</div><div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;"><div class="view-tabs"><button class="view-tab active" onclick="switchStreamView('ascii','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">ASCII Transcript</button><button class="view-tab" onclick="switchStreamView('hexdump','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">Hexdump</button></div><button class="stream-btn" onclick="downloadPcap('${srcIpJs}','${e.src_port}','${dstIpJs}','${e.dest_port}')" style="margin-left: 12px;">Download PCAP</button></div><div class="stream-view-container" style="background: #0d1117; padding: 15px; border-radius: 8px; font-size: 0.8rem; margin: 0;"><div class="ascii-transcript" style="white-space: pre-wrap; overflow-wrap: break-word;"></div><div class="hexdump-content" style="display: none;"></div></div></div>`;
+            return `<div id="ascii-${e.src_ip}-${e.src_port}-${e.dest_ip}-${e.dest_port}" style="margin-top: 15px;"><div style="color: var(--text-muted); font-size: 0.85rem; border-bottom: 1px solid var(--bg-hover); padding-bottom: 5px; margin-bottom: 5px;">Payload</div><div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 10px;"><div class="view-tabs"><button class="view-tab active" onclick="switchStreamView('ascii','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">ASCII Transcript</button><button class="view-tab" onclick="switchStreamView('hexdump','${srcIpJs}',${e.src_port},'${dstIpJs}',${e.dest_port},this)">Hexdump</button></div><button class="stream-btn" onclick="downloadPcap('${srcIpJs}','${e.src_port}','${dstIpJs}','${e.dest_port}')" style="margin-left: 12px;">Download PCAP</button></div><div class="stream-view-container" style="background: var(--bg-primary); padding: 15px; border-radius: 8px; font-size: 0.8rem; margin: 0;"><div class="ascii-transcript" style="white-space: pre-wrap; overflow-wrap: break-word;"></div><div class="hexdump-content" style="display: none;"></div></div></div>`;
         }
 
         function renderAlertDetails(e) {
@@ -575,7 +620,7 @@
                     }
                 });
             } else {
-                html += `<span style="color: #484f58; grid-column: 1 / -1;">No YARA matches</span>`;
+                html += `<span style="color: var(--bg-hover-light); grid-column: 1 / -1;">No YARA matches</span>`;
             }
             return html;
         }
@@ -717,8 +762,25 @@
             document.getElementById('searchBarContainer').style.display = 'none';
             document.getElementById('inputBoxes').style.display = 'block';
             document.getElementById('appHeaderFilename').innerHTML = '';
-            document.getElementById('appHeaderMeta').innerHTML = '<span style="color: #8b949e; font-size: 0.9rem;">Security Onion Containerized Rapid Analysis of Threats, Evil, and Sus</span>';
-            document.getElementById('appHeaderRight').innerHTML = '<button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>';
+            document.getElementById('appHeaderMeta').innerHTML = '<span style="color: var(--text-muted); font-size: 0.9rem;">Security Onion Containerized Rapid Analysis of Threats, Evil, and Sus</span>';
+            document.getElementById('appHeaderRight').innerHTML = `
+                <div class="app-header-menu">
+                    <button class="app-header-menu-btn" onclick="toggleMenu()" title="Menu" id="appHeaderMenuBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.17 15a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.17 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.17a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    </button>
+                    <div class="app-header-menu-dropdown" id="appHeaderMenuDropdown">
+                        <button class="app-header-menu-item" onclick="toggleTheme()">
+                            <span id="themeMenuIcon">🌙</span>
+                            <span id="themeMenuLabel">Dark Theme</span>
+                        </button>
+                        <div class="app-header-menu-sep"></div>
+                        <button class="app-header-menu-item" onclick="showHelpModal(); closeMenu();">
+                            <span>❓</span>
+                            <span>Help</span>
+                        </button>
+                    </div>
+                </div>`;
+            updateThemeMenuLabel();
         }
 
         function shouldShowHelpModal() {
@@ -747,13 +809,13 @@
                 const isFileOnly = document.body.classList.contains('file-analysis');
                 let helpText;
                 if (isLogFile) {
-                    helpText = '<span style="color: #58a6ff;">💡</span> Investigate Sigma Alerts and then review Log Events. Filter using the search bar or aggregation tables.';
+                    helpText = '<span style="color: var(--accent);">💡</span> Investigate Sigma Alerts and then review Log Events. Filter using the search bar or aggregation tables.';
                 } else if (isFileOnly) {
-                    helpText = '<span style="color: #58a6ff;">💡</span> Review the FILE INFO section for metadata and then the data table at the bottom for any matches found by the YARA rules.';
+                    helpText = '<span style="color: var(--accent);">💡</span> Review the FILE INFO section for metadata and then the data table at the bottom for any matches found by the YARA rules.';
                 } else {
-                    helpText = '<span style="color: #58a6ff;">💡</span> Start by reviewing all alerts and then you can change to one of the other data types like DNS, HTTP, or TLS. Filter using the search bar, sankey diagram, or aggregation tables. When you find something interesting, you can drill into the row in the data table at the bottom. This will allow you to see the ASCII transcript and hexdump and optionally download the PCAP file for that stream.';
+                    helpText = '<span style="color: var(--accent);">💡</span> Start by reviewing all alerts and then you can change to one of the other data types like DNS, HTTP, or TLS. Filter using the search bar, sankey diagram, or aggregation tables. When you find something interesting, you can drill into the row in the data table at the bottom. This will allow you to see the ASCII transcript and hexdump and optionally download the PCAP file for that stream.';
                 }
-                modalBody.innerHTML = '<div style="color: #8b949e; font-size: 0.95rem; line-height: 1.6;">' + helpText + '</div>';
+                modalBody.innerHTML = '<div style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.6;">' + helpText + '</div>';
                 checkboxContainer.style.display = 'none';
                 helpModal.classList.remove('wide');
             }
@@ -805,25 +867,25 @@
                 const analyses = await resp.json();
                 if (analyses.length > 0) {
                     previousHtml = analyses.map(a => 
-                        `<div style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid #30363d;">
-                            <a href="?file=${a.md5}" onclick="event.preventDefault(); loadAnalysis('${a.md5}');" style="color: #58a6ff; text-decoration: none; flex: 1;">📁 ${escapeHtml(a.name)}</a>
-                            <button data-md5="${a.md5}" data-name="${escapeHtml(a.name)}" data-action="reanalyze" style="background: #30363d; border: none; color: #58a6ff; cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px; margin-right: 4px;" title="Re-analyze">🔄</button>
-                            <button data-md5="${a.md5}" data-name="${escapeHtml(a.name)}" data-action="delete" style="background: #30363d; border: none; color: #ff6b6b; cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px;" title="Delete">🗑️</button>
+                        `<div style="display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--bg-hover);">
+                            <a href="?file=${a.md5}" onclick="event.preventDefault(); loadAnalysis('${a.md5}');" style="color: var(--accent); text-decoration: none; flex: 1;">${FOLDER_ICON_SVG}${escapeHtml(a.name)}</a>
+                            <button data-md5="${a.md5}" data-name="${escapeHtml(a.name)}" data-action="reanalyze" style="background: var(--bg-hover); border: none; color: var(--accent); cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px; margin-right: 4px;" title="Re-analyze">${REFRESH_ICON_SVG}</button>
+                            <button data-md5="${a.md5}" data-name="${escapeHtml(a.name)}" data-action="delete" style="background: var(--bg-hover); border: none; color: var(--badge-danger-text); cursor: pointer; font-size: 1rem; padding: 4px 10px; border-radius: 6px;" title="Delete">${DELETE_ICON_SVG}</button>
                         </div>`
                     ).join('');
                 } else {
-                    previousHtml = '<span style="color: #484f58;">No previous PCAPs available</span>';
+                    previousHtml = '<span style="color: var(--bg-hover-light);">No previous PCAPs available</span>';
                 }
             } catch(err) {
                 console.error('Failed to load analyses:', err);
-                previousHtml = '<span style="color: #484f58;">Error loading analyses</span>';
+                previousHtml = '<span style="color: var(--bg-hover-light);">Error loading analyses</span>';
             }
             
             document.getElementById('inputBoxes').innerHTML = `
                 <div style="max-width: 900px; margin: 0 auto;">
                     <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px;">
-                        <div style="background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; width: 100%; box-sizing: border-box;">
-                            <div style="color: #8b949e; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">⬇️ Select a sample file, import a file from URL, or import a file from your local system</div>
+                        <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; border: 1px solid var(--bg-hover); width: 100%; box-sizing: border-box;">
+                            <div style="color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">${DOWN_ARROW_ICON_SVG} Select a sample file, import a file from URL, or import a file from your local system</div>
                             <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 15px;">
                                 <div class="sample-card sample-card-red" onclick="loadSampleUrl('https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip')">
                                     <span class="sample-label sample-red">Sample pcap file</span>
@@ -837,182 +899,182 @@
                             </div>
                             <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 15px;">
                                 <div style="flex: 1; text-align: center;">
-                                    <a href="https://www.malware-traffic-analysis.net/" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More pcap samples ↗</a>
+                                    <a href="https://www.malware-traffic-analysis.net/" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-size: 0.85rem;">More pcap samples ↗</a>
                                 </div>
                                 <div style="flex: 1; text-align: center;">
-                                    <a href="https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More log samples ↗</a>
+                                    <a href="https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-size: 0.85rem;">More log samples ↗</a>
                                 </div>
                                 <div style="flex: 1; text-align: center;">
-                                    <a href="https://www.eicar.org/" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-size: 0.85rem;">More binary samples ↗</a>
+                                    <a href="https://www.eicar.org/" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-size: 0.85rem;">More binary samples ↗</a>
                                 </div>
                             </div>
-                            <div style="text-align: center; color: #8b949e; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-bottom: 15px;">— OR —</div>
+                            <div style="text-align: center; color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-bottom: 15px;">— OR —</div>
                             <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-                                <input type="text" id="pcapUrl" value="https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip" onfocus="this.value=''" onkeydown="if(event.key==='Enter')loadFromUrl()" style="background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 8px 12px; border-radius: 4px; font-size: 0.95rem; flex: 1;">
-                                <button onclick="loadFromUrl()" style="background: #58a6ff; color: #0d1117; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.95rem; border: none;">Go</button>
+                                <input type="text" id="pcapUrl" value="https://www.malware-traffic-analysis.net/2026/02/03/2026-02-03-GuLoader-for-AgentTesla-style-infection-with-FTP-data-exfil.pcap.zip" onfocus="this.value=''" onkeydown="if(event.key==='Enter')loadFromUrl()" style="background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--bg-hover); padding: 8px 12px; border-radius: 4px; font-size: 0.95rem; flex: 1;">
+                                <button onclick="loadFromUrl()" style="background: var(--accent); color: var(--bg-primary); padding: 8px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 0.95rem; border: none;">Go</button>
                             </div>
-                            <div style="text-align: center; color: #8b949e; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-bottom: 15px;">— OR —</div>
+                            <div style="text-align: center; color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-transform: uppercase; margin-bottom: 15px;">— OR —</div>
                             <input type="file" id="pcapUpload" onchange="uploadPcap()" style="display: none;">
-                            <div id="dropZone" style="background: #0d1117; color: #58a6ff; padding: 20px; border-radius: 4px; cursor: pointer; font-size: 0.95rem; border: 2px dashed #30363d; text-align: center; transition: border-color 0.2s, background 0.2s;"
+                            <div id="dropZone" style="background: var(--bg-primary); color: var(--accent); padding: 20px; border-radius: 4px; cursor: pointer; font-size: 0.95rem; border: 2px dashed var(--bg-hover); text-align: center; transition: border-color 0.2s, background 0.2s;"
                                  ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
                                  onclick="document.getElementById('pcapUpload').click()">
-                                <div style="font-size: 1.5rem; margin-bottom: 8px;">📂</div>
-                                <div>Choose file or drag and drop here</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d;">
-                        <div style="color: #8b949e; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">📂 Previous Analyses</div>
+                                 <div style="font-size: 1.5rem; margin-bottom: 8px;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><polyline points="2 13 6 9 10 13"></polyline></svg></div>
+                                 <div>Choose file or drag and drop here</div>
+                             </div>
+                         </div>
+                     </div>
+                     <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; border: 1px solid var(--bg-hover);">
+                         <div style="color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; font-weight: 600;">${FOLDER_OPEN_ICON_SVG} Previous Analyses</div>
                         <div id="previousAnalysesList">${previousHtml}</div>
                     </div>
-                    <div style="background: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; margin-top: 20px;">
-                        <div style="color: #8b949e; font-size: 0.9rem; margin-bottom: 10px; text-align: center;">SO-CRATES provides basic analysis. Need more advanced functionality?<br>Take a look at the full <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion</a> platform available in a free Community Edition!<br>If you need enterprise features, consider upgrading to <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none; font-weight: 600;">Security Onion Pro</a>!</div>
+                    <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; border: 1px solid var(--bg-hover); margin-top: 20px;">
+                        <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 10px; text-align: center;">SO-CRATES provides basic analysis. Need more advanced functionality?<br>Take a look at the full <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600;">Security Onion</a> platform available in a free Community Edition!<br>If you need enterprise features, consider upgrading to <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600;">Security Onion Pro</a>!</div>
                         <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
                             <thead>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <th style="text-align: left; padding: 10px; color: #8b949e; font-size: 0.8rem; text-transform: none; cursor: default;">Feature</th>
-                                    <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">SO-CRATES</th>
-                                    <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion</th>
-                                    <th style="text-align: center; padding: 10px; color: #f0f6fc; font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion Pro</th>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <th style="text-align: left; padding: 10px; color: var(--text-muted); font-size: 0.8rem; text-transform: none; cursor: default;">Feature</th>
+                                    <th style="text-align: center; padding: 10px; color: var(--text-bright); font-size: 0.8rem; text-transform: none; cursor: default;">SO-CRATES</th>
+                                    <th style="text-align: center; padding: 10px; color: var(--text-bright); font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion</th>
+                                    <th style="text-align: center; padding: 10px; color: var(--text-bright); font-size: 0.8rem; text-transform: none; cursor: default;">Security Onion Pro</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Import Files</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Import Files</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Investigate Alerts</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Investigate Alerts</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Slice and Dice Metadata</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Slice and Dice Metadata</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Pivot to ASCII Transcript</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Pivot to ASCII Transcript</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Download Carved PCAP</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Download Carved PCAP</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Airgap / Offline Deployment</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Airgap / Offline Deployment</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Analyze Live Traffic</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Analyze Live Traffic</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Production Deployments</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Production Deployments</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Distributed Deployments</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Distributed Deployments</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Endpoint Visibility</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Endpoint Visibility</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Log Management</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Log Management</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
-                                <tr style="border-bottom: 1px solid #30363d;">
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Case Management</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Guided Analysis</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                <tr style="border-bottom: 1px solid var(--bg-hover);">
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Case Management</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Onion AI Assistant</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Guided Analysis</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Open ID Connect (OIDC)</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Onion AI Assistant</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">FIPS</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Open ID Connect (OIDC)</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">STIG Compliance for the OS</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">FIPS</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Connect API</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">STIG Compliance for the OS</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">External Notifications</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Connect API</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">Manager of Managers (MoM)</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">External Notifications</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                                 <tr>
-                                    <td style="padding: 8px 10px; color: #c9d1d9; font-size: 0.85rem;">MCP Server</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #484f58;">-</td>
-                                    <td style="text-align: center; padding: 8px 10px; color: #66bb6a;">✅</td>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">Manager of Managers (MoM)</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 10px; color: var(--text-primary); font-size: 0.85rem;">MCP Server</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--bg-hover-light);">-</td>
+                                    <td style="text-align: center; padding: 8px 10px; color: var(--badge-success-text);">${CHECKMARK_ICON_SVG}</td>
                                 </tr>
                             </tbody>
                         </table>
                         <div style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; font-size: 0.85rem;">
-                            <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Security Onion</a>
-                            <span style="color: #30363d;">|</span>
-                            <a href="http://securityonion.net/docs/about" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Security Onion Documentation</a>
-                            <span style="color: #30363d;">|</span>
-                            <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Security Onion Pro</a>
-                            <span style="color: #30363d;">|</span>
-                            <a href="http://securityonion.net/docs/security-onion-pro" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Security Onion Pro Documentation</a>
+                            <a href="https://securityonion.net" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">Security Onion</a>
+                            <span style="color: var(--bg-hover);">|</span>
+                            <a href="http://securityonion.net/docs/about" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">Security Onion Documentation</a>
+                            <span style="color: var(--bg-hover);">|</span>
+                            <a href="https://securityonion.com/pro" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">Security Onion Pro</a>
+                            <span style="color: var(--bg-hover);">|</span>
+                            <a href="http://securityonion.net/docs/security-onion-pro" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">Security Onion Pro Documentation</a>
                         </div>
                     </div>
                 </div>
@@ -1023,6 +1085,7 @@
         
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
+                closeMenu();
                 closeHelpModal();
             }
             if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
@@ -1442,7 +1505,7 @@
             const strings = (meta.strings || []).slice(0, 10);
             const stringsHtml = strings.length
                 ? `<span class="value" style="word-break: break-all;">${escapeHtml(strings.join(', '))}</span>`
-                : '<span class="value" style="color: #484f58;">—</span>';
+                : '<span class="value" style="color: var(--bg-hover-light);">—</span>';
 
             const exif = meta.exif || {};
             const exifEntries = Object.entries(exif).slice(0, 12);
@@ -1452,7 +1515,7 @@
 
             return `
                 <div class="file-info-card">
-                    <h3>📄 File Info</h3>
+                    <h3>${FILE_ICON_SVG} File Info</h3>
                     <div class="file-info-grid">
                         <span class="label">Filename</span><span class="value">${escapeHtml(fi.filename || '')}</span>
                         <span class="label">Size</span><span class="value">${escapeHtml(String((fi.size || 0).toLocaleString()))} bytes</span>
@@ -1496,7 +1559,7 @@
             if (rows.length === 0 && Object.keys(currentFilters).length > 0) {
                 html += EMPTY_FILTER_STATE_HTML;
             } else if (rows.length === 0) {
-                html += '<div style="padding: 40px; text-align: center; color: #8b949e; font-size: 0.95rem;">No YARA matches found</div>';
+                html += '<div style="padding: 40px; text-align: center; color: var(--text-muted); font-size: 0.95rem;">No YARA matches found</div>';
             } else {
                 html += '<table><thead><tr>';
                 columns.forEach(h => html += `<th>${h}</th>`);
@@ -1563,10 +1626,10 @@
                     } else {
                         val = getLogColumnValue(evt, c.field);
                     }
-                    row += `<td>${val ? escapeHtml(val) : '<span style="color:#8b949e;">—</span>'}</td>`;
+                    row += `<td>${val ? escapeHtml(val) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
                 });
             }
-            row += `<td>${detailTruncated ? escapeHtml(detailTruncated) : '<span style="color:#8b949e;">—</span>'}</td>`;
+            row += `<td>${detailTruncated ? escapeHtml(detailTruncated) : '<span style="color:var(--text-muted);">—</span>'}</td>`;
             row += '</tr>';
 
             const detailHtml = formatLogEventDetail(jsonData);
@@ -1607,7 +1670,7 @@
             let row = `<tr onclick="toggleSigmaRow(this, '${safeDetailId}')">`;
             row += `<td class="timestamp">${timestamp}</td>`;
             row += `<td><span class="badge ${sevClass}">${escapeHtml(sev.toUpperCase())}</span></td>`;
-            row += `<td><strong>${ruleTitle}</strong>${ruleId ? '<br><span style="color:#8b949e;font-size:0.8rem;">' + ruleId + '</span>' : ''}</td>`;
+            row += `<td><strong>${ruleTitle}</strong>${ruleId ? '<br><span style="color:var(--text-muted);font-size:0.8rem;">' + ruleId + '</span>' : ''}</td>`;
             row += `<td>${mitreHtml}</td>`;
             row += `<td>${logsource}</td>`;
             row += '</tr>';
@@ -1924,7 +1987,7 @@
                 for (const [val, count] of entries) {
                     const escapedVal = escapeHtml(val);
                     html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(val)}')">
-                        <td style="text-align:right;color:#8b949e;">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
+                        <td style="text-align:right;color:var(--text-muted);">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
                     </tr>`;
                 }
                 html += '</tbody></table></div></div></div>';
@@ -2010,7 +2073,7 @@
                 for (const [val, count] of entries) {
                     const escapedVal = escapeHtml(val);
                     html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(val)}')">
-                        <td style="text-align:right;color:#8b949e;">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
+                        <td style="text-align:right;color:var(--text-muted);">${count}</td><td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
                     </tr>`;
                 }
                 html += '</tbody></table></div></div></div>';
@@ -2020,7 +2083,7 @@
         }
 
         function formatLogEventDetail(jsonData) {
-            if (!jsonData || Object.keys(jsonData).length === 0) return '<div style="color:#8b949e;padding:10px;">No event data available</div>';
+            if (!jsonData || Object.keys(jsonData).length === 0) return '<div style="color:var(--text-muted);padding:10px;">No event data available</div>';
 
             const sections = [
                 {
@@ -2092,7 +2155,7 @@
             }
 
             html += '</div>';
-            return hasAny ? html : '<div style="color:#8b949e;padding:10px;">No event data available</div>';
+            return hasAny ? html : '<div style="color:var(--text-muted);padding:10px;">No event data available</div>';
         }
 
                 function formatSigmaAlertDetail(alert) {
@@ -2332,7 +2395,7 @@
                     label: 'All Events',
                     count: allFiltered,
                     total: allTotal,
-                    color: '#f0f6fc'
+                    color: 'var(--text-bright)'
                 });
             }
             
@@ -2491,7 +2554,7 @@
                     const escapedVal = escapeHtml(val);
                     const filterVal = val === '(empty)' ? '' : val;
                     html += `<tr class="agg-row" onclick="applyFilter('${sectionId}', '${escapeJsString(col)}', '${escapeJsString(filterVal)}')">
-                        <td style="text-align:right;color:#8b949e;">${count}</td>
+                        <td style="text-align:right;color:var(--text-muted);">${count}</td>
                         <td class="agg-cell" title="${escapedVal}">${escapedVal}</td>
                     </tr>`;
                 }
@@ -2596,7 +2659,7 @@
 
         const EVENT_TYPE_ICONS = { alert: '🔴', dns: '🟢', http: '🟠', tls: '🔵', flow: '🟣', ftp: '📁', anomaly: '⚠️', fileinfo: '📄', filealerts: '🚨', log: '📋', sigmaalert: '🛡️' };
         const ALL_EVENTS_COLUMNS = ['Time', 'Type', 'Protocol', 'Source IP', 'Source Port', 'Dest IP', 'Dest Port', 'Detail'];
-        const EMPTY_FILTER_STATE_HTML = '<div style="padding: 40px; text-align: center; color: #8b949e; font-size: 0.95rem;">🔍 No events match the current filters</div>';
+        const EMPTY_FILTER_STATE_HTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted); font-size: 0.95rem;">🔍 No events match the current filters</div>';
         const AGG_COLLAPSED_HTML = '<div class="agg-panel"><div class="section-toggle-bar" onclick="toggleAggregations()">▸ Aggregation Tables</div></div>';
 
         function hideAggregationTable(sectionId, col) {
@@ -2952,12 +3015,29 @@
                         document.body.classList.remove('file-analysis');
                     }
                     
-                    document.getElementById('appHeaderFilename').innerHTML = `📄 ${escapeHtml(currentFileName)}`;
+                    document.getElementById('appHeaderFilename').innerHTML = `${FILE_ICON_SVG}${escapeHtml(currentFileName)}`;
                     document.getElementById('appHeaderMeta').innerHTML = `
-                        <span style="color: #8b949e; font-size: 0.85rem; white-space: nowrap;">📁 ${currentMd5}</span>
-                        <span style="color: #8b949e; font-size: 0.85rem; white-space: nowrap;">📅 ${dateDisplay}</span>
+                        <span style="color: var(--text-muted); font-size: 0.85rem; white-space: nowrap;">${FOLDER_ICON_SVG}${currentMd5}</span>
+                        <span style="color: var(--text-muted); font-size: 0.85rem; white-space: nowrap;">📅 ${dateDisplay}</span>
                     `;
-                    document.getElementById('appHeaderRight').innerHTML = `<button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>`;
+                    document.getElementById('appHeaderRight').innerHTML = `
+                        <div class="app-header-menu">
+                            <button class="app-header-menu-btn" onclick="toggleMenu()" title="Menu" id="appHeaderMenuBtn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.17 15a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.17 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.17a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            </button>
+                            <div class="app-header-menu-dropdown" id="appHeaderMenuDropdown">
+                                <button class="app-header-menu-item" onclick="toggleTheme()">
+                                    <span id="themeMenuIcon">🌙</span>
+                                    <span id="themeMenuLabel">Dark Theme</span>
+                                </button>
+                                <div class="app-header-menu-sep"></div>
+                                <button class="app-header-menu-item" onclick="showHelpModal(); closeMenu();">
+                                    <span>❓</span>
+                                    <span>Help</span>
+                                </button>
+                            </div>
+                        </div>`;
+                    updateThemeMenuLabel();
                     showAnalysisUI();
                     updateFilterBarVisibility();
                     

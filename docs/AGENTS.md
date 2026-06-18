@@ -60,6 +60,18 @@ The frontend is split into three files under `static/`:
 
 When updating styles or frontend logic, edit the appropriate split file. Keep `socrates.html` free of inline `<style>` and `<script>` blocks.
 
+### Theming Conventions
+
+SO-CRATES supports dark mode (default) and light mode via CSS custom properties.
+
+- **Use CSS variables** (`var(--bg-primary)`, `var(--text-primary)`, `var(--accent)`, etc.) instead of hardcoded hex values for all structural/theme colors.
+- **Add light-mode overrides** in the `[data-theme="light"]` block when a default dark color lacks contrast on white backgrounds.
+- **Preserve hardcoded colors** only for functional/data-driven elements (event type colors, severity colors, ASCII transcript direction colors) that must stay consistent across both themes.
+- **Use `currentColor`** for inline SVG icons so they inherit the surrounding text color and adapt automatically.
+- **Avoid emojis** for UI icons when possible — use inline SVGs instead, since emojis render as full-color system glyphs that ignore CSS `color` and may be invisible in one theme.
+
+The theme toggle is in the gear icon menu in the upper right corner. The user's choice is persisted to `localStorage` as `socrates-theme`.
+
 ## README Maintenance
 
 When adding, removing, or renaming sections in `README.md`, always update the **Table of Contents** at the top of the file. GitHub auto-generates anchor IDs from heading text (lowercased, spaces→hyphens, special chars stripped). Duplicate heading names get `-1`, `-2`, etc. suffixes.
