@@ -65,7 +65,7 @@ To slice and dice your data, expand the Aggregation Tables section and click on 
 
 The fastest way to try SO-CRATES is with our online demo:
 
-https://securityonion.net/pcap
+https://securityonion.net/socrates-demo
 
 Please note the following:
 - this is a cloud-based service so please do not share any sensitive files or any other sensitive info
@@ -78,7 +78,7 @@ For a private or permanent instance of SO-CRATES, most folks will want to use ou
 
 ### OhMyDebn
 
-If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + P` to automatically install and run SO-CRATES and then you can skip to the [Usage](#usage) section below.
+If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + S` to automatically install and run SO-CRATES and then you can skip to the [Usage](#usage) section below.
 
 ### Docker
 
