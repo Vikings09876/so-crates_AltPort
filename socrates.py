@@ -34,7 +34,7 @@ from sigma_analyzer import (
 )
 import config
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 PORT = int(os.environ.get('PORT', 8000))
 BIND_ADDRESS = os.environ.get('BIND_ADDRESS', '127.0.0.1')
 DATA_DIR = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))

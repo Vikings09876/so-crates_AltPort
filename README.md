@@ -1,14 +1,14 @@
 # SO-CRATES
 
-A standalone web application for analyzing network traffic (PCAP), log files, and binary files. Features include Suricata network analysis, YARA binary scanning, Sigma rule detection for logs, and a single-page UI for browsing alerts, metadata, transcripts, and hexdumps.
+Security Onion Containerized Rapid Analysis of Threats, Evil, and Sus
+
+A standalone web application for analyzing pcap files, log files, and binary files. Features include Suricata network analysis, YARA binary scanning, Sigma rule detection for logs, and a single-page UI for browsing alerts, metadata, transcripts, and hexdumps.
 
 ## Screenshots
 
 When you first connect to SO-CRATES, a window will appear with an overview of SO-CRATES:
 
 ![Welcome screen](docs/images/so-crates-welcome.png)
-
-If you need to refer to this again later, you can click the ? in the upper right corner of the main screen.
 
 The main screen allows you to upload a file or load a previous analysis:
 
@@ -63,7 +63,7 @@ To slice and dice your data, expand the Aggregation Tables section and click on 
 
 The fastest way to try SO-CRATES is with our online demo:
 
-https://securityonion.net/pcap
+https://securityonion.net/socrates-demo
 
 Please note the following:
 - this is a cloud-based service so please do not share any sensitive files or any other sensitive info
@@ -76,7 +76,7 @@ For a private or permanent instance of SO-CRATES, most folks will want to use ou
 
 ### OhMyDebn
 
-If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + P` to automatically install and run SO-CRATES and then you can skip to the [Usage](#usage) section below.
+If you are running the latest version of [OhMyDebn](https://ohmydebn.org), then you can just press `Ctrl + Alt + S` to automatically install and run SO-CRATES and then you can skip to the [Usage](#usage) section below.
 
 ### Docker
 

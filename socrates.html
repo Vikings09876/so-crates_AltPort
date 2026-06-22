@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SO-CRATES - Welcome</title>
+    <script>
+        (function() {
+            const theme = localStorage.getItem('socrates-theme');
+            if (theme === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="static/socrates.css">
     <script src="static/d3.min.js"></script>
     <script src="static/d3-sankey.min.js"></script>
@@ -12,18 +20,33 @@
     <div class="app-header" id="appHeader">
         <div class="app-header-left">
             <a href="#" onclick="showWelcome(); return false;" style="display: inline-flex; align-items: center; text-decoration: none; margin-right: 8px;">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
             </a>
-            <a href="#" onclick="showWelcome(); return false;" style="color: #f0f6fc; text-decoration: none; font-size: 1.2rem; font-weight: 700;">SO-CRATES</a>
+            <a href="#" onclick="showWelcome(); return false;" style="color: var(--text-bright); text-decoration: none; font-size: 1.2rem; font-weight: 700;">SO-CRATES</a>
             <span id="appHeaderFilename" class="app-header-filename"></span>
             <span id="appHeaderMeta" class="app-header-meta"></span>
         </div>
         <div class="app-header-right" id="appHeaderRight">
-            <span style="color: #8b949e; font-size: 0.9rem;">Investigate alerts and then slice and dice your metadata!</span>
-            <button class="app-header-help" onclick="showHelpModal()" title="Help">?</button>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">Investigate alerts and then slice and dice your metadata!</span>
+            <div class="app-header-menu">
+                <button class="app-header-menu-btn" onclick="toggleMenu()" title="Menu" id="appHeaderMenuBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.17 15a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.17 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.17a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+                <div class="app-header-menu-dropdown" id="appHeaderMenuDropdown">
+                    <button class="app-header-menu-item" onclick="toggleTheme()">
+                        <span id="themeMenuIcon">🌙</span>
+                        <span id="themeMenuLabel">Dark Theme</span>
+                    </button>
+                    <div class="app-header-menu-sep"></div>
+                    <button class="app-header-menu-item" onclick="showHelpModal(); closeMenu();">
+                        <span>❓</span>
+                        <span>Help</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     <div class="container">
@@ -42,9 +65,9 @@
                     <button class="modal-close" onclick="closeErrorModal()">&times;</button>
                 </div>
                 <div style="padding: 20px;">
-                    <p id="errorMessage" style="color: #c9d1d9; margin-bottom: 20px;"></p>
+                    <p id="errorMessage" style="color: var(--text-primary); margin-bottom: 20px;"></p>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button onclick="closeErrorModal()" style="background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Close</button>
+                        <button onclick="closeErrorModal()" style="background: var(--bg-hover); color: var(--text-primary); border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Close</button>
                     </div>
                 </div>
             </div>
@@ -57,9 +80,9 @@
                     <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
                 </div>
                 <div style="padding: 20px;">
-                    <p style="color: #c9d1d9; margin-bottom: 20px; overflow-wrap: break-word;">Are you sure you want to delete <span id="deleteFileName" style="font-weight: 600; color: #f0f6fc;"></span>?</p>
+                    <p style="color: var(--text-primary); margin-bottom: 20px; overflow-wrap: break-word;">Are you sure you want to delete <span id="deleteFileName" style="font-weight: 600; color: var(--text-bright);"></span>?</p>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button onclick="closeDeleteModal()" style="background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
+                        <button onclick="closeDeleteModal()" style="background: var(--bg-hover); color: var(--text-primary); border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
                         <button onclick="confirmDelete()" style="background: #ff6b6b; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Delete</button>
                     </div>
                 </div>
@@ -69,14 +92,14 @@
         <div class="modal" id="reanalyzeConfirmModal">
             <div class="modal-content" style="max-width: 400px;">
                 <div class="modal-header">
-                    <h3 style="color: #58a6ff;">Confirm Re-analyze</h3>
+                    <h3 style="color: var(--accent);">Confirm Re-analyze</h3>
                     <button class="modal-close" onclick="closeReanalyzeModal()">&times;</button>
                 </div>
                 <div style="padding: 20px;">
-                    <p style="color: #c9d1d9; margin-bottom: 20px; overflow-wrap: break-word;">This will delete the existing analysis for <span id="reanalyzeFileName" style="font-weight: 600; color: #f0f6fc;"></span> and re-run the analysis pipeline. The uploaded file will be preserved.</p>
+                    <p style="color: var(--text-primary); margin-bottom: 20px; overflow-wrap: break-word;">This will delete the existing analysis for <span id="reanalyzeFileName" style="font-weight: 600; color: var(--text-bright);"></span> and re-run the analysis pipeline. The uploaded file will be preserved.</p>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button onclick="closeReanalyzeModal()" style="background: #30363d; color: #c9d1d9; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
-                        <button onclick="confirmReanalyze()" style="background: #58a6ff; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Re-analyze</button>
+                        <button onclick="closeReanalyzeModal()" style="background: var(--bg-hover); color: var(--text-primary); border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
+                        <button onclick="confirmReanalyze()" style="background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">Re-analyze</button>
                     </div>
                 </div>
             </div>
@@ -89,12 +112,12 @@
                     <button class="modal-close" onclick="closeHelpModal()">&times;</button>
                 </div>
                 <div id="helpModalBody">Loading...</div>
-                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 15px; border-top: 1px solid #30363d; margin-top: 10px;">
-                    <label id="helpShowAgainContainer" style="color: #8b949e; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 15px; border-top: 1px solid var(--bg-hover); margin-top: 10px;">
+                    <label id="helpShowAgainContainer" style="color: var(--text-muted); font-size: 0.9rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="helpShowAgain" checked style="cursor: pointer;">
                         Show this message each time I connect
                     </label>
-                    <button onclick="closeHelpModal()" style="background: #58a6ff; color: #0d1117; border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;">Got it!</button>
+                    <button onclick="closeHelpModal()" style="background: var(--accent); color: var(--bg-primary); border: none; padding: 8px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;">Got it!</button>
                 </div>
             </div>
         </div>
@@ -126,8 +149,8 @@
         <script src="static/socrates.js"></script>
     </div>
     <div class="footer">
-        <a href="https://github.com/dougburks/so-crates" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" id="footerVersionLink">SO-CRATES</a>
-        <a href="https://securityonion.com" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">&copy; 2026 Security Onion Solutions, LLC</a>
+        <a href="https://github.com/dougburks/so-crates" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;" id="footerVersionLink">SO-CRATES</a>
+        <a href="https://securityonion.com" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">&copy; 2026 Security Onion Solutions, LLC</a>
     </div>
 </body>
 </html>
