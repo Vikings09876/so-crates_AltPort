@@ -1710,6 +1710,43 @@ class TestEscapeHtmlCompleteness(unittest.TestCase):
                       'escapeHtml must escape single quotes for defense-in-depth')
 
 
+class TestEscapeJsStringCompleteness(unittest.TestCase):
+    """REGRESSION: escapeJsString is always used to embed a value inside a
+    single-quoted JS string literal within a double-quoted HTML onclick="..."
+    attribute (e.g. onclick="fn('${escapeJsString(x)}')"). Escaping only
+    backslash/single-quote protects the JS-string boundary but leaves a raw
+    '"' free to break out of the surrounding HTML attribute -- discovered via
+    a jsdom exploit test that created a live <img> element through exactly
+    this gap. escapeJsString must also HTML-escape so both boundaries hold."""
+
+    def test_escapeJsString_neutralizes_double_quote_breakout(self):
+        from tests.jsdom_helper import js_statements
+        payload = '"><img src=x onerror=alert(1)>'
+        result = js_statements(f'''
+            var escaped = escapeJsString({json.dumps(payload)});
+            var div = document.createElement('div');
+            div.innerHTML = '<button onclick="fn(\\'' + escaped + '\\')">x</button>';
+            document.body.appendChild(div);
+            window.__jsdom_result = {{
+                imgCount: div.querySelectorAll('img').length,
+                buttonCount: div.querySelectorAll('button').length,
+            }};
+        ''')
+        self.assertEqual(result['imgCount'], 0, 'a double-quote must not break out of the onclick attribute')
+        self.assertEqual(result['buttonCount'], 1, 'the button element itself must survive intact')
+
+    def test_escapeJsString_still_escapes_backslash_and_single_quote(self):
+        from tests.jsdom_helper import js_statements
+        result = js_statements('''
+            window.__jsdom_result = {
+                backslash: escapeJsString('a\\\\b'),
+                quote: escapeJsString("a'b"),
+            };
+        ''')
+        self.assertEqual(result['backslash'], 'a\\\\b')
+        self.assertEqual(result['quote'], "a\\&#39;b")
+
+
 class TestAdvancedToggleNoMemoryLeak(unittest.TestCase):
     def test_no_inline_addEventListener_for_advancedToggle(self):
         """The advanced toggle must use a single delegated listener, not repeated inline addEventListener calls."""
@@ -1814,6 +1851,27 @@ class TestSearchUI(unittest.TestCase):
         """buildFilterBarHtml must show full escaped term in each chip."""
         self.assertIn('"${escapeHtml(term)}"', JS_CONTENT,
                       'Search chip must show full escaped term text')
+
+    def test_filter_chip_escapes_malicious_column_name(self):
+        """REGRESSION: buildFilterBarHtml renders currentFilters keys (column
+        names, which can originate from attacker-controlled log field names
+        applied as a filter) both as visible text and inside a
+        clearFilter('...') onclick attribute. A malicious key must not
+        create a live element via either sink."""
+        from tests.jsdom_helper import js_statements
+        malicious_col = '"><img src=x onerror=alert(1)>'
+        result = js_statements(f'''
+            currentFilters = {{}};
+            currentFilters[{json.dumps(malicious_col)}] = 'someval';
+            var html = buildFilterBarHtml();
+            var div = document.createElement('div');
+            div.innerHTML = html;
+            document.body.appendChild(div);
+            window.__jsdom_result = {{
+                imgCount: div.querySelectorAll('img').length,
+            }};
+        ''')
+        self.assertEqual(result['imgCount'], 0, 'malicious filter column name must not create a live <img> element')
 
     def test_search_adds_terms_on_enter(self):
         """performSearch must split input into terms and push to array."""
@@ -2633,6 +2691,62 @@ class TestLogAnalysisUI(unittest.TestCase):
         ''')
         self.assertTrue(result['hasAggRow'])
         self.assertTrue(result['hasSeverityHeader'])
+
+    def test_buildLogAggregations_escapes_malicious_field_name(self):
+        """REGRESSION: a log event's JSON field *name* becomes a column label
+        in the aggregation table. A malicious field name (fully attacker-
+        controlled, since it comes straight from an uploaded log file) must
+        not be able to inject a live element via the column label -- this
+        previously created a real <img> element via both the visible label
+        text and the data-col attribute."""
+        from tests.jsdom_helper import js_statements
+        malicious_field = '"><img src=x onerror=alert(1)>'
+        events = [
+            {'timestamp': '2024-01-01T00:00:00Z', 'json_data': {malicious_field: 'v', 'EventID': 1}}
+            for _ in range(3)
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var events = {json.dumps(events)};
+            buildLogAggregations(events, 'section-log');
+            window.__jsdom_result = {{
+                imgCount: agg.querySelectorAll('img').length,
+            }};
+        ''')
+        self.assertEqual(result['imgCount'], 0, 'malicious field name must not create a live <img> element')
+
+    def test_buildSigmaAlertAggregations_escapes_malicious_field_name(self):
+        """REGRESSION: same injection vector as buildLogAggregations, but
+        via a Sigma alert's original_log JSON field names."""
+        from tests.jsdom_helper import js_statements
+        malicious_field = '"><img src=x onerror=alert(1)>'
+        original_log = json.dumps({malicious_field: 'v', 'Image': 'evil.exe'})
+        alerts = [
+            {'severity': 'high', 'rule_title': 'Test Rule', 'mitre_techniques': '[]',
+             'logsource': 'windows', 'original_log': original_log}
+            for _ in range(3)
+        ]
+        result = js_statements(f'''
+            advancedMode = true;
+            var agg = document.getElementById('aggregations');
+            if (!agg) {{
+                agg = document.createElement('div');
+                agg.id = 'aggregations';
+                document.body.appendChild(agg);
+            }}
+            var alerts = {json.dumps(alerts)};
+            buildSigmaAlertAggregations(alerts, 'section-sigmaalert');
+            window.__jsdom_result = {{
+                imgCount: agg.querySelectorAll('img').length,
+            }};
+        ''')
+        self.assertEqual(result['imgCount'], 0, 'malicious field name must not create a live <img> element')
 
     def test_isLogAnalysisMode_false_after_clear(self):
         """clearAnalysisContainers must reset isLogAnalysisMode to false."""

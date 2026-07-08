@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 import http.server
+import http.client
 import socketserver
 import json
 import os
+import ssl
 import subprocess
 import hashlib
-from urllib.parse import urlparse, parse_qs
-import urllib.request
+from urllib.parse import urlparse, parse_qs, urljoin
 import zipfile
 import re
 import tempfile
 import time
 import shutil
 import sys
+import socket
 import threading
 
 from db import (
@@ -22,7 +24,7 @@ from db import (
 )
 from validators import (
     validate_ip, validate_port, sanitize_filename, is_safe_path,
-    validate_url_safety, validate_zip_extraction,
+    validate_url_safety, resolve_safe_ips, validate_zip_extraction,
     is_log_file, is_log_file_by_extension, is_office_file_by_extension,
 )
 from suricata_analyzer import (
@@ -34,7 +36,7 @@ from sigma_analyzer import (
 )
 import config
 
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 PORT = int(os.environ.get('PORT', 8000))
 BIND_ADDRESS = os.environ.get('BIND_ADDRESS', '127.0.0.1')
 DATA_DIR = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))
@@ -46,6 +48,110 @@ SURICATA_DIR = os.path.join(DATA_DIR, 'suricata')
 
 PCAP_EXTENSIONS = ('.pcap', '.pcapng', '.cap', '.trace')
 MD5_RE = re.compile(r'^[a-f0-9]{32}$')
+
+MAX_URL_REDIRECTS = 5
+
+
+class _FileTooLargeError(Exception):
+    """Raised by _fetch_url_safely when the downloaded body exceeds max_size."""
+
+
+def _connect_to_pinned_ips(pinned_ips, port, timeout):
+    """Try each pre-validated IP in turn, same fallback behavior as a plain
+    hostname connect (e.g. skip an unreachable IPv6 address and fall back to
+    IPv4), but every candidate comes from the already-validated set -- no
+    new DNS lookup happens here, so the pinning/SSRF protection holds."""
+    last_err = None
+    for ip in pinned_ips:
+        try:
+            return socket.create_connection((ip, port), timeout)
+        except OSError as e:
+            last_err = e
+    raise last_err
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that connects to a pre-validated IP instead of letting
+    the socket layer re-resolve the hostname, closing the DNS-rebinding
+    TOCTOU window between validate_url_safety() and the real connection."""
+
+    def __init__(self, hostname, pinned_ips, port, timeout):
+        super().__init__(hostname, port, timeout=timeout)
+        self._pinned_ips = pinned_ips
+
+    def connect(self):
+        self.sock = _connect_to_pinned_ips(self._pinned_ips, self.port, self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, hostname, pinned_ips, port, timeout):
+        super().__init__(hostname, port, timeout=timeout, context=ssl.create_default_context())
+        self._pinned_ips = pinned_ips
+
+    def connect(self):
+        sock = _connect_to_pinned_ips(self._pinned_ips, self.port, self.timeout)
+        # server_hostname uses the real hostname (self.host) for SNI/cert
+        # validation even though we dialed a pinned IP directly.
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+def _fetch_url_safely(url, timeout, max_size, chunk_size=64 * 1024):
+    """Download a URL while guarding against SSRF.
+
+    Every hop -- including redirect targets -- is validated with
+    validate_url_safety() and then connected via the specific IPs that
+    validation just checked (see resolve_safe_ips). This prevents both:
+      - DNS-rebinding TOCTOU: an attacker's DNS server returning a public IP
+        for validation and a private/internal IP for the real connection.
+      - Redirect-based bypass: a public URL that 30x-redirects to a blocked
+        address after the initial URL already passed validation.
+
+    Returns the response body as bytes.
+    Raises ValueError on validation/protocol failures, or _FileTooLargeError
+    if the body exceeds max_size.
+    """
+    current_url = url
+    for _ in range(MAX_URL_REDIRECTS + 1):
+        validate_url_safety(current_url)
+        parsed = urlparse(current_url)
+        hostname = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        pinned_ips = resolve_safe_ips(hostname)
+
+        path = parsed.path or '/'
+        if parsed.query:
+            path += '?' + parsed.query
+
+        conn_cls = _PinnedHTTPSConnection if parsed.scheme == 'https' else _PinnedHTTPConnection
+        conn = conn_cls(hostname, pinned_ips, port, timeout)
+        try:
+            conn.request('GET', path, headers={'User-Agent': 'Mozilla/5.0'})
+            resp = conn.getresponse()
+
+            if resp.status in (301, 302, 303, 307, 308):
+                location = resp.getheader('Location')
+                resp.read()
+                if not location:
+                    raise ValueError('Redirect response missing Location header')
+                current_url = urljoin(current_url, location)
+                continue
+
+            if resp.status != 200:
+                raise ValueError(f'Server returned HTTP {resp.status}')
+
+            file_data = bytearray()
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                file_data.extend(chunk)
+                if len(file_data) > max_size:
+                    raise _FileTooLargeError('File too large')
+            return bytes(file_data)
+        finally:
+            conn.close()
+
+    raise ValueError('Too many redirects')
 
 
 def _attempt_zip_extract(zip_ref, extract_dir, passwords):
@@ -184,11 +290,34 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         Returns the raw body bytes, or None and sends an error response
         if validation fails.
         """
-        content_length = int(self.headers.get('Content-Length', 0))
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            self._send_error(400, 'Invalid Content-Length')
+            return None
         if content_length < 0 or content_length > max_size:
             self._send_error(400, 'Invalid Content-Length')
             return None
         return self.rfile.read(content_length)
+
+    def _read_json_body(self, max_size):
+        """Read and parse a JSON object POST body safely.
+
+        Returns the parsed dict, or None and sends an error response if
+        reading fails, the body isn't valid JSON, or it isn't a JSON object.
+        """
+        post_data = self._read_post_body(max_size)
+        if post_data is None:
+            return None
+        try:
+            data = json.loads(post_data)
+        except json.JSONDecodeError:
+            self._send_error(400, 'Invalid JSON body')
+            return None
+        if not isinstance(data, dict):
+            self._send_error(400, 'Invalid request body')
+            return None
+        return data
 
     def _resolve_md5_dir(self, md5):
         """Validate MD5 format and resolve to a safe data directory path.
@@ -586,10 +715,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_error(404, 'Analysis not found')
 
     def handle_post_delete_analysis(self):
-        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
-        if post_data is None:
+        data = self._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        if data is None:
             return
-        data = json.loads(post_data)
         md5 = data.get('md5', '')
         if not MD5_RE.match(md5):
             self._send_error(400, 'Invalid MD5')
@@ -942,10 +1070,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send_error(500, 'Internal server error')
 
     def handle_post_load_url(self):
-        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
-        if post_data is None:
+        data = self._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        if data is None:
             return
-        data = json.loads(post_data)
         url = data.get('url', '')
 
         if not url:
@@ -953,21 +1080,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            validate_url_safety(url)
-
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=config.URL_DOWNLOAD_TIMEOUT) as response:
-                chunk_size = 64 * 1024
-                file_data = bytearray()
-                while True:
-                    chunk = response.read(chunk_size)
-                    if not chunk:
-                        break
-                    file_data.extend(chunk)
-                    if len(file_data) > MAX_UPLOAD_SIZE:
-                        self._send_error(413, 'File too large')
-                        return
-                file_data = bytes(file_data)
+            file_data = _fetch_url_safely(url, config.URL_DOWNLOAD_TIMEOUT, MAX_UPLOAD_SIZE)
 
             parsed_url = urlparse(url)
             original_filename = os.path.basename(parsed_url.path)
@@ -983,6 +1096,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             result = self._process_uploaded_file(file_data, original_filename, passwords)
             self._send_json(result)
+        except _FileTooLargeError:
+            self._send_error(413, 'File too large')
         except ValueError as exc:
             self._send_error(400, str(exc))
         except Exception:
@@ -1049,10 +1164,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._send_json(self._build_status_response(dir_path))
 
     def handle_post_check_status(self):
-        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
-        if post_data is None:
+        data = self._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        if data is None:
             return
-        data = json.loads(post_data)
         md5 = data.get('md5', '')
 
         if not MD5_RE.match(md5):
@@ -1066,10 +1180,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._send_json(self._build_status_response(dir_path))
 
     def handle_post_reanalyze(self):
-        post_data = self._read_post_body(config.MAX_REQUEST_BODY_SIZE)
-        if post_data is None:
+        data = self._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        if data is None:
             return
-        data = json.loads(post_data)
         md5 = data.get('md5', '')
 
         if not MD5_RE.match(md5):

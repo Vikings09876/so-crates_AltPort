@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import unittest
+import unittest.mock
+import socket
 import sys
 import os
 
@@ -323,6 +325,89 @@ class TestIsLogFileByExtension(unittest.TestCase):
     def test_substring_match_not_log(self):
         """Ensure .json inside a larger extension isn't falsely matched."""
         self._assert_not_log_ext('file.json.exe')
+
+
+class TestResolveSafeIp(unittest.TestCase):
+    """Tests for resolve_safe_ip, which callers must use to pin a connection
+    to a validated IP instead of letting the HTTP client re-resolve the
+    hostname (closing the DNS-rebinding TOCTOU window)."""
+
+    def _fake_addrinfo(self, ip):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (ip, 0))]
+
+    def test_returns_ip_for_public_host(self):
+        with unittest.mock.patch('socket.getaddrinfo', return_value=self._fake_addrinfo('93.184.216.34')):
+            self.assertEqual(validators.resolve_safe_ip('example.com'), '93.184.216.34')
+
+    def test_rejects_private_10x(self):
+        with unittest.mock.patch('socket.getaddrinfo', return_value=self._fake_addrinfo('10.0.0.5')):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ip('internal.example.com')
+
+    def test_rejects_loopback(self):
+        with unittest.mock.patch('socket.getaddrinfo', return_value=self._fake_addrinfo('127.0.0.1')):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ip('sneaky.example.com')
+
+    def test_rejects_link_local_metadata_ip(self):
+        with unittest.mock.patch('socket.getaddrinfo', return_value=self._fake_addrinfo('169.254.169.254')):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ip('metadata.example.com')
+
+    def test_raises_on_dns_failure(self):
+        with unittest.mock.patch('socket.getaddrinfo', side_effect=socket.gaierror):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ip('doesnotexist.invalid')
+
+    def test_raises_on_dns_timeout(self):
+        with unittest.mock.patch('socket.getaddrinfo', side_effect=socket.timeout):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ip('slow.example.com')
+
+    def test_returned_ip_is_what_validate_url_safety_checked(self):
+        """resolve_safe_ip must apply the same blocklist as validate_url_safety
+        so the IP it returns for pinning is exactly what was already vetted."""
+        with unittest.mock.patch('socket.getaddrinfo', return_value=self._fake_addrinfo('192.168.1.1')):
+            with self.assertRaises(ValueError) as ctx:
+                validators.resolve_safe_ip('router.local')
+            self.assertIn('private', str(ctx.exception).lower())
+
+    def test_resolve_safe_ips_returns_all_addresses_preserving_order(self):
+        """REGRESSION: resolve_safe_ips must return every resolved address in
+        the resolver's own order, not alphabetically sorted. A plain sort
+        puts an IPv6 address before an IPv4 one (since '2' < '8' as
+        strings) regardless of which is actually reachable -- exactly the
+        bug that broke fetching secure.eicar.org (IPv6-first, no IPv6 route
+        in the deployment environment)."""
+        addrinfo = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('2a00:1828:3000::1:73ad:2', 0, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('89.238.73.97', 0)),
+        ]
+        with unittest.mock.patch('socket.getaddrinfo', return_value=addrinfo):
+            ips = validators.resolve_safe_ips('secure.eicar.org')
+        self.assertEqual(ips, ['2a00:1828:3000::1:73ad:2', '89.238.73.97'],
+                          'must preserve resolver order, not sort alphabetically')
+
+    def test_resolve_safe_ips_dedupes_repeated_addresses(self):
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 0)),
+            (socket.AF_INET, socket.SOCK_DGRAM, 17, '', ('93.184.216.34', 0)),
+        ]
+        with unittest.mock.patch('socket.getaddrinfo', return_value=addrinfo):
+            ips = validators.resolve_safe_ips('example.com')
+        self.assertEqual(ips, ['93.184.216.34'])
+
+    def test_rejects_hostname_if_any_resolved_ip_is_blocked(self):
+        """A hostname that resolves to a mix of public and private/internal
+        addresses must be rejected entirely (fail closed), even though one
+        of the addresses would have been fine on its own."""
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('10.0.0.5', 0)),
+        ]
+        with unittest.mock.patch('socket.getaddrinfo', return_value=addrinfo):
+            with self.assertRaises(ValueError):
+                validators.resolve_safe_ips('mixed.example.com')
 
 
 if __name__ == '__main__':

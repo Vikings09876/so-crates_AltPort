@@ -262,7 +262,7 @@ Once you've connected to SO-CRATES in your browser, here are some of the things 
    - **Other files** → YARA binary scanning
 2. **Load from URL** — paste a URL to a file and press **Enter** (or click **Go**). Password-protected zips from `malware-traffic-analysis.net` are auto-decrypted using the date-based password format
 3. **Reopen a previous analysis** — previously analyzed files are listed on the welcome screen
-4. **Re-analyze a previous file** — click the 🔄 button next to any previous file to delete its analysis and re-run the pipeline. Rules are updated first if internet access is available
+4. **Re-analyze a previous file** — click the re-analyze button next to any previous file to delete its analysis and re-run the pipeline
 
 ### Navigate Results
 

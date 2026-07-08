@@ -1,10 +1,36 @@
+FROM debian:13-slim AS zircolite-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build-only stage: compiles the Zircolite venv (evtx/orjson have Rust
+# extensions, lxml has a C extension) so the Rust toolchain, build-essential,
+# dev headers, and git never need to exist in the final runtime image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    python3 \
+    python3-venv \
+    python3-dev \
+    build-essential \
+    rustc \
+    cargo \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch v3.7.1 \
+    https://github.com/wagga40/Zircolite.git /usr/local/lib/zircolite && \
+    rm -rf /usr/local/lib/zircolite/.git && \
+    python3 -m venv /usr/local/lib/zircolite-venv && \
+    /usr/local/lib/zircolite-venv/bin/pip install --no-cache-dir \
+    -r /usr/local/lib/zircolite/requirements.txt
+
+
 FROM debian:13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    python3-pip \
     suricata \
     suricata-update \
     tcpdump \
@@ -14,26 +40,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     file \
     libimage-exiftool-perl \
+    libxml2 \
+    libxslt1.1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Zircolite (pinned version) for Sigma log analysis in an isolated venv
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    python3-venv \
-    python3-dev \
-    build-essential \
-    rustc \
-    cargo \
-    libxml2-dev \
-    libxslt1-dev \
-    && git clone --depth 1 --branch v3.7.1 \
-    https://github.com/wagga40/Zircolite.git /usr/local/lib/zircolite && \
-    rm -rf /usr/local/lib/zircolite/.git && \
-    python3 -m venv /usr/local/lib/zircolite-venv && \
-    /usr/local/lib/zircolite-venv/bin/pip install --no-cache-dir \
-    -r /usr/local/lib/zircolite/requirements.txt && \
-    ln -s /usr/local/lib/zircolite/zircolite.py /usr/local/bin/zircolite.py && \
-    rm -rf /var/lib/apt/lists/*
+COPY --from=zircolite-builder /usr/local/lib/zircolite /usr/local/lib/zircolite
+COPY --from=zircolite-builder /usr/local/lib/zircolite-venv /usr/local/lib/zircolite-venv
+RUN ln -s /usr/local/lib/zircolite/zircolite.py /usr/local/bin/zircolite.py
 
 ENV DATA_DIR=/data
 ENV BIND_ADDRESS=0.0.0.0
