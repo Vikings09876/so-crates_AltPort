@@ -44,6 +44,38 @@ def is_safe_path(base, path):
     return real_path.startswith(real_base + os.sep) or real_path == real_base
 
 
+def _resolve_and_validate_ips(hostname):
+    """Resolve hostname to its IP addresses and reject any that are blocked.
+
+    Returns the unique resolved IP address strings in the order getaddrinfo
+    returned them (the OS/resolver's preferred order, e.g. IPv6-before-IPv4
+    on dual-stack hosts) -- NOT sorted, since a plain alphabetical sort can
+    put an unreachable address family first (e.g. "2001:..." sorts before
+    "93.1.2.3" but the host may have no IPv6 route).
+    Raises ValueError if resolution fails, times out, or any address is blocked.
+    """
+    try:
+        # Set a 5-second timeout to prevent hanging on slow/unresponsive DNS
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(5)
+        try:
+            addrinfo = socket.getaddrinfo(hostname, None)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
+    except socket.gaierror:
+        raise ValueError(f"Could not resolve hostname: {hostname}")
+    except socket.timeout:
+        raise ValueError(f"DNS resolution timed out for hostname: {hostname}")
+
+    resolved_ips = list(dict.fromkeys(info[4][0] for info in addrinfo))
+    for addr in resolved_ips:
+        ip = ipaddress.ip_address(addr)
+        for network in BLOCKED_NETWORKS:
+            if ip in network:
+                raise ValueError(f"Access to private/internal addresses is not allowed ({addr})")
+    return resolved_ips
+
+
 def validate_url_safety(url):
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_URL_SCHEMES:
@@ -56,26 +88,32 @@ def validate_url_safety(url):
     if hostname.lower() in [h.lower() for h in BLOCKED_HOSTS]:
         raise ValueError("Access to localhost is not allowed")
 
-    try:
-        # Set a 5-second timeout to prevent hanging on slow/unresponsive DNS
-        old_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(5)
-        try:
-            addrinfo = socket.getaddrinfo(hostname, None)
-        finally:
-            socket.setdefaulttimeout(old_timeout)
-        resolved_ips = set()
-        for info in addrinfo:
-            resolved_ips.add(info[4][0])
-        for addr in resolved_ips:
-            ip = ipaddress.ip_address(addr)
-            for network in BLOCKED_NETWORKS:
-                if ip in network:
-                    raise ValueError(f"Access to private/internal addresses is not allowed ({addr})")
-    except socket.gaierror:
-        raise ValueError(f"Could not resolve hostname: {hostname}")
-    except socket.timeout:
-        raise ValueError(f"DNS resolution timed out for hostname: {hostname}")
+    _resolve_and_validate_ips(hostname)
+
+
+def resolve_safe_ips(hostname):
+    """Resolve and validate hostname, returning all safe IPs to try.
+
+    Callers that fetch a user-supplied URL must connect directly to one of
+    these IPs (trying each in turn, like a normal hostname connect would)
+    rather than letting the HTTP client re-resolve the hostname. Otherwise a
+    DNS-rebinding attacker can return a public IP for validate_url_safety()'s
+    lookup and a private/internal IP for the connection's own lookup moments
+    later, bypassing the check entirely (TOCTOU). Returning every validated
+    address (not just one) preserves normal multi-address fallback -- e.g. a
+    dual-stack host whose IPv6 address isn't reachable but whose IPv4
+    address is.
+    """
+    return _resolve_and_validate_ips(hostname)
+
+
+def resolve_safe_ip(hostname):
+    """Resolve and validate hostname, returning one safe IP to connect to.
+
+    Convenience wrapper around resolve_safe_ips() for callers that only need
+    a single address and don't need multi-address fallback.
+    """
+    return resolve_safe_ips(hostname)[0]
 
 
 def validate_zip_extraction(zip_ref, extract_path):

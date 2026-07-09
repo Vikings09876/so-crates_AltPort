@@ -181,6 +181,148 @@ class TestURLValidation(unittest.TestCase):
             server.validate_url_safety('http:///path')
 
 
+class TestPinnedConnectionUsesValidatedIp(unittest.TestCase):
+    """The pinned connection classes must dial the exact IP that was already
+    validated, not let the socket layer re-resolve the hostname. This is the
+    mechanism that closes the DNS-rebinding TOCTOU: if this regresses to a
+    plain HTTPConnection(hostname, port), a DNS-rebinding attacker's second
+    lookup (for the real connection) could return a different, blocked IP."""
+
+    def test_http_connection_dials_pinned_ip_not_hostname(self):
+        with unittest.mock.patch('socket.create_connection') as mock_conn:
+            mock_conn.return_value = unittest.mock.MagicMock()
+            conn = server._PinnedHTTPConnection('example.com', ['203.0.113.5'], 80, 5)
+            conn.connect()
+            mock_conn.assert_called_once_with(('203.0.113.5', 80), 5)
+
+    def test_https_connection_dials_pinned_ip_but_uses_hostname_for_sni(self):
+        with unittest.mock.patch('socket.create_connection') as mock_conn:
+            fake_sock = unittest.mock.MagicMock()
+            mock_conn.return_value = fake_sock
+            conn = server._PinnedHTTPSConnection('example.com', ['203.0.113.5'], 443, 5)
+            conn._context = unittest.mock.MagicMock()
+            conn._context.wrap_socket.return_value = unittest.mock.MagicMock()
+            conn.connect()
+            mock_conn.assert_called_once_with(('203.0.113.5', 443), 5)
+            # SNI/cert validation must still use the real hostname, not the IP,
+            # so TLS verification isn't weakened by the pinning.
+            conn._context.wrap_socket.assert_called_once_with(fake_sock, server_hostname='example.com')
+
+    def test_falls_back_to_next_pinned_ip_if_first_is_unreachable(self):
+        """REGRESSION: a dual-stack host (e.g. IPv6 + IPv4) must not fail
+        outright just because its first resolved address is unreachable from
+        this network -- same fallback a plain hostname connect gets. This is
+        the exact bug reported for secure.eicar.org (IPv6-first, no IPv6
+        route in the deployment environment)."""
+        with unittest.mock.patch('socket.create_connection') as mock_conn:
+            mock_conn.side_effect = [OSError('Network is unreachable'), unittest.mock.MagicMock()]
+            conn = server._PinnedHTTPConnection('example.com', ['2a00:1828::1', '203.0.113.5'], 80, 5)
+            conn.connect()
+            self.assertEqual(mock_conn.call_count, 2)
+            mock_conn.assert_any_call(('2a00:1828::1', 80), 5)
+            mock_conn.assert_any_call(('203.0.113.5', 80), 5)
+
+    def test_raises_if_all_pinned_ips_unreachable(self):
+        with unittest.mock.patch('socket.create_connection') as mock_conn:
+            mock_conn.side_effect = OSError('Network is unreachable')
+            conn = server._PinnedHTTPConnection('example.com', ['2a00:1828::1', '203.0.113.5'], 80, 5)
+            with self.assertRaises(OSError):
+                conn.connect()
+
+
+class TestFetchUrlSafely(unittest.TestCase):
+    """Tests for _fetch_url_safely's SSRF protections: every hop (including
+    redirect targets) must be re-validated, not just the initial URL."""
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path == '/redirect':
+                    self.send_response(302)
+                    self.send_header('Location', '/final')
+                    self.end_headers()
+                elif self.path == '/final':
+                    body = b'final-payload'
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == '/big':
+                    body = b'x' * 2000
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        cls.httpd = http.server.ThreadingHTTPServer(('127.0.0.1', 0), _Handler)
+        cls.port = cls.httpd.server_address[1]
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def test_follows_redirect_and_revalidates_each_hop(self):
+        """REGRESSION: a redirect target must be validated too, not just the
+        initial URL (the old urlopen-based code let redirects bypass
+        validate_url_safety entirely)."""
+        validated_urls = []
+
+        def spy_validate(url):
+            validated_urls.append(url)
+
+        with unittest.mock.patch('socrates.validate_url_safety', side_effect=spy_validate), \
+             unittest.mock.patch('socrates.resolve_safe_ips', return_value=['127.0.0.1']):
+            data = server._fetch_url_safely(
+                f'http://localhost:{self.port}/redirect', timeout=5, max_size=10_000_000
+            )
+        self.assertEqual(data, b'final-payload')
+        self.assertEqual(len(validated_urls), 2, 'both the initial URL and the redirect target must be validated')
+        self.assertIn('/redirect', validated_urls[0])
+        self.assertIn('/final', validated_urls[1])
+
+    def test_rejects_redirect_to_blocked_target(self):
+        """If a redirect target fails validation, the fetch must abort
+        rather than follow it."""
+        def spy_validate(url):
+            if '/final' in url:
+                raise ValueError('Access to private/internal addresses is not allowed')
+
+        with unittest.mock.patch('socrates.validate_url_safety', side_effect=spy_validate), \
+             unittest.mock.patch('socrates.resolve_safe_ips', return_value=['127.0.0.1']):
+            with self.assertRaises(ValueError):
+                server._fetch_url_safely(
+                    f'http://localhost:{self.port}/redirect', timeout=5, max_size=10_000_000
+                )
+
+    def test_enforces_size_limit(self):
+        with unittest.mock.patch('socrates.validate_url_safety', return_value=None), \
+             unittest.mock.patch('socrates.resolve_safe_ips', return_value=['127.0.0.1']):
+            with self.assertRaises(server._FileTooLargeError):
+                server._fetch_url_safely(
+                    f'http://localhost:{self.port}/big', timeout=5, max_size=100
+                )
+
+    def test_plain_fetch_returns_body(self):
+        with unittest.mock.patch('socrates.validate_url_safety', return_value=None), \
+             unittest.mock.patch('socrates.resolve_safe_ips', return_value=['127.0.0.1']):
+            data = server._fetch_url_safely(
+                f'http://localhost:{self.port}/final', timeout=5, max_size=10_000_000
+            )
+        self.assertEqual(data, b'final-payload')
+
+
 class TestPcapContentValidation(unittest.TestCase):
     def test_pcap_magic_little_endian(self):
         data = b'\xd4\xc3\xb2\xa1' + b'\x00' * 20
@@ -509,6 +651,14 @@ class TestAPIEndpoints(unittest.TestCase):
         """GET /api/delete-analysis must return 404 after moving to POST."""
         status, body = self._get('/api/delete-analysis?md5=' + 'a' * 32)
         self.assertEqual(status, 404, 'GET /api/delete-analysis must return 404')
+
+    def test_delete_analysis_malformed_json_returns_400(self):
+        """REGRESSION: a malformed JSON body must get a clean 400, not a
+        dropped connection from an uncaught json.JSONDecodeError."""
+        status, body = self._post('/api/delete-analysis', b'not-json-at-all')
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertIn('Invalid JSON', data.get('error', ''))
 
     def test_pcap_path_invalid_md5(self):
         status, body = self._get('/api/pcap-path?md5=invalid')
@@ -1310,6 +1460,14 @@ class TestAPIEndpoints(unittest.TestCase):
             # URL validation fails at some point (DNS resolve or IP check)
             self.assertIn('error', data)
 
+    def test_load_url_malformed_json_returns_400(self):
+        """REGRESSION: a malformed JSON body must get a clean 400, not a
+        dropped connection from an uncaught json.JSONDecodeError."""
+        status, body = self._post('/api/load-url', b'not-json-at-all')
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertIn('Invalid JSON', data.get('error', ''))
+
     def test_check_status_missing_md5(self):
         status, body = self._post('/api/check-status', {})
         self.assertEqual(status, 400)
@@ -1321,6 +1479,14 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(status, 400)
         data = json.loads(body)
         self.assertIn('Invalid MD5', data.get('error', ''))
+
+    def test_check_status_malformed_json_returns_400(self):
+        """REGRESSION: a malformed JSON body must get a clean 400, not a
+        dropped connection from an uncaught json.JSONDecodeError."""
+        status, body = self._post('/api/check-status', b'not-json-at-all')
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertIn('Invalid JSON', data.get('error', ''))
 
     def test_check_status_path_traversal(self):
         status, body = self._post('/api/check-status', {'md5': '../../../etc/passwd'})
@@ -1465,6 +1631,14 @@ class TestAPIEndpoints(unittest.TestCase):
         self.assertEqual(status, 409, 'Reanalyze must be blocked when .phase exists')
         result = json.loads(body)
         self.assertIn('already in progress', result.get('error', '').lower())
+
+    def test_reanalyze_malformed_json_returns_400(self):
+        """REGRESSION: a malformed JSON body must get a clean 400, not a
+        dropped connection from an uncaught json.JSONDecodeError."""
+        status, body = self._post('/api/reanalyze', b'not-json-at-all')
+        self.assertEqual(status, 400)
+        data = json.loads(body)
+        self.assertIn('Invalid JSON', data.get('error', ''))
 
     def test_upload_password_protected_zip(self):
         """Behavioral: upload must extract password-protected ZIPs using common passwords."""
@@ -2370,6 +2544,77 @@ class TestReadPostBody(unittest.TestCase):
         self.assertEqual(result, b'a' * 10)
         handler._send_error.assert_not_called()
 
+    def test_non_numeric_content_length_rejected(self):
+        """REGRESSION: a non-numeric Content-Length must return None and send
+        400, not raise an uncaught ValueError from int()."""
+        from io import BytesIO
+        handler = server.Handler.__new__(server.Handler)
+        handler.headers = unittest.mock.MagicMock()
+        handler.headers.get = unittest.mock.MagicMock(return_value='not-a-number')
+        handler.rfile = BytesIO(b'')
+        handler._send_error = unittest.mock.MagicMock()
+
+        result = handler._read_post_body(config.MAX_UPLOAD_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid Content-Length')
+
+
+class TestReadJsonBody(unittest.TestCase):
+    """Tests for _read_json_body, which every JSON POST handler uses so a
+    malformed body returns a clean 400 instead of an uncaught exception."""
+
+    def _make_handler(self, body_bytes):
+        from io import BytesIO
+        handler = server.Handler.__new__(server.Handler)
+        handler.headers = unittest.mock.MagicMock()
+        handler.headers.get = unittest.mock.MagicMock(return_value=str(len(body_bytes)))
+        handler.rfile = BytesIO(body_bytes)
+        handler._send_error = unittest.mock.MagicMock()
+        return handler
+
+    def test_valid_json_object_returns_dict(self):
+        handler = self._make_handler(b'{"md5": "abc"}')
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertEqual(result, {'md5': 'abc'})
+        handler._send_error.assert_not_called()
+
+    def test_malformed_json_returns_none_and_sends_400(self):
+        """REGRESSION: malformed JSON must return None and send 400, not raise
+        an uncaught json.JSONDecodeError."""
+        handler = self._make_handler(b'not-json-at-all')
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid JSON body')
+
+    def test_json_array_returns_none_and_sends_400(self):
+        """A JSON array isn't a dict, so callers' .get() would blow up; must
+        be rejected with a clean 400 instead."""
+        handler = self._make_handler(b'[1, 2, 3]')
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid request body')
+
+    def test_json_scalar_returns_none_and_sends_400(self):
+        handler = self._make_handler(b'"just a string"')
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid request body')
+
+    def test_empty_body_returns_none_and_sends_400(self):
+        handler = self._make_handler(b'')
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid JSON body')
+
+    def test_oversized_content_length_short_circuits(self):
+        """_read_json_body must propagate _read_post_body's own rejection
+        (Content-Length too large) without ever calling json.loads."""
+        handler = self._make_handler(b'{}')
+        handler.headers.get = unittest.mock.MagicMock(return_value=str(config.MAX_REQUEST_BODY_SIZE + 1))
+        result = handler._read_json_body(config.MAX_REQUEST_BODY_SIZE)
+        self.assertIsNone(result)
+        handler._send_error.assert_called_once_with(400, 'Invalid Content-Length')
+
 
 DOCKERFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Dockerfile')
 DOCKER_COMPOSE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'docker-compose.yml')
@@ -2420,6 +2665,68 @@ class TestDockerfile(unittest.TestCase):
         self.assertIn('cargo', content, 'Dockerfile must install cargo')
         self.assertIn('libxml2-dev', content, 'Dockerfile must install libxml2-dev')
         self.assertIn('libxslt1-dev', content, 'Dockerfile must install libxslt1-dev')
+
+    def _dockerfile_final_stage(self):
+        """Return the Dockerfile content for just the final (runtime) stage.
+
+        The Dockerfile has exactly two `FROM debian:13-slim` stages: a named
+        builder stage that compiles the Zircolite venv, and an unnamed final
+        stage that ships. Splitting on the FROM lines isolates the final
+        stage so tests can assert build-only tools never land in it.
+        """
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        parts = content.split('FROM debian:13-slim')
+        self.assertEqual(len(parts), 3,
+                          'Dockerfile must have exactly one builder stage and one final stage')
+        return parts[2]
+
+    def test_dockerfile_uses_multistage_build(self):
+        """REGRESSION: Dockerfile must build the Zircolite venv in a separate
+        stage so its Rust toolchain/build-essential/dev headers/git never
+        ship in the final image (previously added ~800MB of unused build
+        tooling to every image)."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertIn('AS zircolite-builder', content,
+                      'Dockerfile must define a named zircolite-builder stage')
+        self.assertEqual(content.count('FROM debian:13-slim'), 2,
+                          'Dockerfile must have exactly two build stages')
+
+    def test_build_toolchain_absent_from_final_stage(self):
+        """REGRESSION: the Rust/build toolchain used to compile the
+        Zircolite venv must not be installed in the final runtime stage."""
+        import re
+        final_stage = self._dockerfile_final_stage()
+        for pkg in ('build-essential', 'python3-dev', 'rustc', 'cargo',
+                    'libxml2-dev', 'libxslt1-dev', 'python3-venv'):
+            self.assertNotIn(pkg, final_stage, f'{pkg} must not be installed in the final stage')
+        self.assertIsNone(re.search(r'\bgit\b', final_stage),
+                          'git package must not be installed in the final stage')
+
+    def test_python3_pip_not_installed(self):
+        """python3-pip must not be installed anywhere -- python3 -m venv
+        bootstraps its own pip via ensurepip, so no system-wide pip package
+        is needed in either stage."""
+        with open(DOCKERFILE, 'r') as f:
+            content = f.read()
+        self.assertNotIn('python3-pip', content)
+
+    def test_final_stage_copies_prebuilt_venv(self):
+        """Final stage must COPY the pre-built venv from the builder stage
+        rather than building it itself."""
+        final_stage = self._dockerfile_final_stage()
+        self.assertIn('COPY --from=zircolite-builder /usr/local/lib/zircolite-venv', final_stage,
+                      'Final stage must copy the built venv from the builder stage')
+        self.assertIn('COPY --from=zircolite-builder /usr/local/lib/zircolite ', final_stage,
+                      'Final stage must copy the zircolite script from the builder stage')
+
+    def test_final_stage_uses_runtime_libs_not_dev_headers(self):
+        """Final stage needs the runtime shared libs for lxml's compiled
+        extension (libxml2/libxslt1.1), not the -dev header packages."""
+        final_stage = self._dockerfile_final_stage()
+        self.assertIn('libxml2', final_stage, 'Final stage must install the libxml2 runtime library')
+        self.assertIn('libxslt1.1', final_stage, 'Final stage must install the libxslt1.1 runtime library')
 
     def test_dockerfile_venv_owned_by_app_user(self):
         """Dockerfile must chown the Zircolite venv so the non-root user can use it."""

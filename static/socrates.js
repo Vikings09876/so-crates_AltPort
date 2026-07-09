@@ -5,7 +5,14 @@
 
         function escapeJsString(str) {
             if (str == null) return '';
-            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            // Every call site embeds the result inside a single-quoted JS
+            // string literal within a double-quoted HTML onclick="..."
+            // attribute. Escaping only backslash/quote protects the JS
+            // string boundary but leaves the attribute boundary open (a
+            // raw '"' or '<'/'>' would still break out of the attribute),
+            // so also HTML-escape after JS-escaping.
+            const jsEscaped = String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return escapeHtml(jsEscaped);
         }
 
         function sortEventTypes(types) {
@@ -1981,8 +1988,8 @@
                 const colCounts = counts[col];
                 const entries = Object.entries(colCounts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
                 if (entries.length === 0) continue;
-                html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
-                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
+                html += `<div class="section agg-section" data-col="${escapeHtml(col)}"><div class="section-content"><div class="agg-table">
+                    <div class="agg-header"><span>${escapeHtml(col)}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
                     <table><thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead><tbody>`;
                 for (const [val, count] of entries) {
                     const escapedVal = escapeHtml(val);
@@ -2067,8 +2074,8 @@
                 const colCounts = counts[col];
                 const entries = Object.entries(colCounts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
                 if (entries.length === 0) continue;
-                html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
-                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
+                html += `<div class="section agg-section" data-col="${escapeHtml(col)}"><div class="section-content"><div class="agg-table">
+                    <div class="agg-header"><span>${escapeHtml(col)}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
                     <table><thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead><tbody>`;
                 for (const [val, count] of entries) {
                     const escapedVal = escapeHtml(val);
@@ -2275,7 +2282,7 @@
                 html += `<span class="filter-chip">🔍 "${escapeHtml(term)}" <span class="filter-chip-remove" onclick="clearSearchTerm(${i})">&times;</span></span>`;
             }
             for (const [col, val] of Object.entries(currentFilters)) {
-                html += `<span class="filter-chip">${col}: ${escapeHtml(val)} <span class="filter-chip-remove" onclick="clearFilter('${col}')">&times;</span></span>`;
+                html += `<span class="filter-chip">${escapeHtml(col)}: ${escapeHtml(val)} <span class="filter-chip-remove" onclick="clearFilter('${escapeJsString(col)}')">&times;</span></span>`;
             }
             html += '<button class="filter-clear-all" onclick="clearAllFilters()">Clear All</button></div>';
             return html;
@@ -2543,8 +2550,8 @@
                 
                 const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, CONFIG.AGGREGATION_TOP_N);
                 
-                html += `<div class="section agg-section" data-col="${col}"><div class="section-content"><div class="agg-table">
-                    <div class="agg-header"><span>${col}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
+                html += `<div class="section agg-section" data-col="${escapeHtml(col)}"><div class="section-content"><div class="agg-table">
+                    <div class="agg-header"><span>${escapeHtml(col)}</span><button class="agg-close" onclick="hideAggregationTable('${sectionId}', '${escapeJsString(col)}')" title="Hide">&times;</button></div>
                     <table>
                         <thead><tr><th style="width:60px;text-align:right;">Count</th><th>Value</th></tr></thead>
                         <tbody>`;
