@@ -1,6 +1,6 @@
 services:
   so-crates:
-    image: ghcr.io/Vikings09876/so-crates_AltPort:main
+    image: ghcr.io/vikings09876/so-crates_altport:main
     container_name: so-crates
     ports:
       - "8001:8001"
