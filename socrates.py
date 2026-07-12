@@ -37,7 +37,7 @@ from sigma_analyzer import (
 import config
 
 VERSION = '1.1.1'
-PORT = int(os.environ.get('PORT', 8000))
+PORT = int(os.environ.get('PORT', 8001))
 BIND_ADDRESS = os.environ.get('BIND_ADDRESS', '127.0.0.1')
 DATA_DIR = os.environ.get('DATA_DIR', os.path.expanduser('~/socrates-data'))
 # Re-export size limits for backward compatibility
