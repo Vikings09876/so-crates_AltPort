@@ -3,7 +3,7 @@ services:
     image: ghcr.io/dougburks/so-crates:main
     container_name: so-crates
     ports:
-      - "8000:8000"
+      - "8001:8001"
     volumes:
       - type: bind
         source: ./socrates-data
