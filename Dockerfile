@@ -50,7 +50,7 @@ RUN ln -s /usr/local/lib/zircolite/zircolite.py /usr/local/bin/zircolite.py
 
 ENV DATA_DIR=/data
 ENV BIND_ADDRESS=0.0.0.0
-ENV PORT=8000
+ENV PORT=8001
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
